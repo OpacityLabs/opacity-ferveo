@@ -43,7 +43,6 @@ wasm-bindgen-derive = { workspace = true, optional = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
-digest = { workspace = true, features = ["alloc"] }
 test-case = { workspace = true }
 console_error_panic_hook = { workspace = true }
 serde = { workspace = true, features = ["derive"] }

@@ -6,9 +6,9 @@ use ark_poly::EvaluationDomain;
 use std::hint::black_box;
 
 use criterion::{criterion_group, BenchmarkId, Criterion};
-use digest::crypto_common::rand_core::SeedableRng;
 use ferveo_nucypher::*;
 use rand::prelude::StdRng;
+use rand::SeedableRng;
 
 const NUM_SHARES_CASES: [usize; 6] = [2, 4, 8, 16, 32, 64];
 

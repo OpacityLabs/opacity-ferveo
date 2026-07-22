@@ -4,14 +4,14 @@ use ark_ec::{pairing::Pairing, AffineRepr};
 use ark_ff::{One, UniformRand};
 use ark_serialize::CanonicalSerialize;
 use chacha20poly1305::{
-    aead::{generic_array::GenericArray, Aead, KeyInit, Payload},
+    aead::{Aead, KeyInit, Payload},
     ChaCha20Poly1305,
 };
 use ferveo_common::serialization;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use sha2::{digest::Digest, Sha256};
-use zeroize::ZeroizeOnDrop;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::{
     htp_bls12381_g2, DkgPublicKey, Error, PrivateKeyShare, Result, SecretBox,
@@ -199,9 +199,10 @@ pub fn shared_secret_to_chacha<E: Pairing>(
     shared_secret
         .0
         .serialize_compressed(prf_key.as_mut_secret())?;
-    Ok(ChaCha20Poly1305::new(GenericArray::from_slice(&sha256(
-        prf_key.as_secret(),
-    ))))
+    let mut key = chacha20poly1305::Key::from(sha256(prf_key.as_secret()));
+    let cipher = ChaCha20Poly1305::new(&key);
+    key.zeroize();
+    Ok(cipher)
 }
 
 /// Wrapper around the Nonce implementation from the `chacha20poly1305` crate.
@@ -217,9 +218,9 @@ impl Nonce {
         let mut commitment_bytes = Vec::new();
         commitment.serialize_compressed(&mut commitment_bytes)?;
         let commitment_hash = sha256(&commitment_bytes);
-        Ok(Nonce(*chacha20poly1305::Nonce::from_slice(
-            &commitment_hash[..12],
-        )))
+        let mut nonce_bytes = [0u8; 12];
+        nonce_bytes.copy_from_slice(&commitment_hash[..12]);
+        Ok(Nonce(chacha20poly1305::Nonce::from(nonce_bytes)))
     }
 }
 
