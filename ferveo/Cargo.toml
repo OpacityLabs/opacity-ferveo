@@ -31,7 +31,6 @@ subproductdomain = { path = "../subproductdomain" }
 thiserror = { workspace = true }
 zeroize = { workspace = true, features = ["derive"] }
 generic-array = { workspace = true }
-derive_more = { workspace = true, features = ["from", "as_ref", "into"] }
 
 [dev-dependencies]
 criterion = { workspace = true }
