@@ -1,8 +1,5 @@
 #![warn(rust_2018_idioms)]
 
-#[cfg(feature = "bindings-wasm")]
-extern crate alloc;
-
 #[cfg(feature = "bindings-python")]
 pub mod bindings_python;
 

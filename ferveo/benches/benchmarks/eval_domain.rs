@@ -3,7 +3,9 @@
 
 use ark_ff::Field;
 use ark_poly::EvaluationDomain;
-use criterion::{black_box, criterion_group, BenchmarkId, Criterion};
+use std::hint::black_box;
+
+use criterion::{criterion_group, BenchmarkId, Criterion};
 use digest::crypto_common::rand_core::SeedableRng;
 use ferveo_nucypher::*;
 use rand::prelude::StdRng;

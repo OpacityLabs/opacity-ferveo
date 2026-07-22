@@ -11,9 +11,9 @@ use ark_ec::{
     AffineRepr, CurveGroup,
 };
 use ark_ff::{BigInteger256, Field, UniformRand};
-use criterion::{
-    black_box, criterion_group, criterion_main, BenchmarkId, Criterion,
-};
+use std::hint::black_box;
+
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use itertools::izip;
 use rand::prelude::StdRng;
 use rand_core::SeedableRng;
