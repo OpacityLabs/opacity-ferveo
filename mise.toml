@@ -1,0 +1,11 @@
+[tools]
+rust = { version = "1.97.1", profile = "default", components = ["rustfmt", "clippy"] }
+
+[settings]
+lockfile = true
+experimental = true
+
+[tasks]
+test = "cargo test --release --workspace"
+lint = "cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings"
+bench-compile = "cargo bench --no-run --workspace"
