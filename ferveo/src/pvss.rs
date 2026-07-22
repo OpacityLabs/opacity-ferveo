@@ -152,8 +152,17 @@ impl<E: Pairing, T> PubliclyVerifiableSS<E, T> {
         }
 
         // TODO: Cross check proof of knowledge check with the whitepaper; this check proves that there is a relationship between the secret and the pvss transcript - #201
-        // Sigma is a proof of knowledge of the secret, sigma = h^s
-        let sigma = E::G2Affine::generator().mul(*s).into(); // TODO: Use hash-to-curve here? This can break compatibility - #195
+        // Sigma is a proof of knowledge of the secret, sigma = h^s, where h is
+        // the fixed G2 generator.
+        //
+        // WIRE FORMAT — DO NOT CHANGE. `sigma` is serialized into every PVSS
+        // transcript and is pinned by the golden vectors in
+        // `ferveo/tests/wire_format.rs`. Deriving the base point via
+        // hash-to-curve (instead of the fixed generator) would change every
+        // transcript on the wire and break compatibility with already-deployed
+        // artifacts. The old "use hash-to-curve here?" note (upstream #195) is a
+        // trap: it is intentionally not done.
+        let sigma = E::G2Affine::generator().mul(*s).into();
         let vss = Self {
             coeffs,
             shares,

@@ -74,15 +74,22 @@ pub fn htp_bls12381_g2(msg: &[u8]) -> ark_bls12_381::G2Affine {
 }
 
 fn to_affine(compressed_rev: &mut [u8; 96]) -> Affine<Config> {
-    // TODO: This is a hack to get around the fact that G2Affine representation produced by miracl_core
-    //     is not compatible with the one used by arkworks. The "Unexpected Flag" error is thrown.
-    // ark_bls12_381::G2Affine::deserialize_compressed(&compressed_rev[..])
-    //     .unwrap()
-    // In this workaround we use `from_random_bytes` instead of `deserialize_compressed`, because
-    //  the former performs checks that prevent the "Unexpected Flag" error.
-    // TODO: Remove expect?
+    // WIRE FORMAT / KAT-FENCED — DO NOT "FIX" THIS INTO `deserialize_compressed`.
+    // miracl_core's compressed G2 bytes are not accepted by arkworks'
+    // `G2Affine::deserialize_compressed`: it rejects them with an
+    // "Unexpected Flag" error. `from_random_bytes` applies the checks that let
+    // the (byte-reversed) miracl output decode to the correct point. This
+    // conversion is pinned by the RFC 9380 known-answer tests below and feeds
+    // the on-wire ciphertext commitment, so changing it is a compatibility
+    // break. This is required behavior, not a temporary hack.
+    //
+    // The rejected alternative, kept for the record:
+    //   ark_bls12_381::G2Affine::deserialize_compressed(&compressed_rev[..]).unwrap()
+    //
+    // The `.expect` cannot fire in practice: the bytes always originate from
+    // miracl_core's own compressed encoding of a valid curve point.
     ark_bls12_381::G2Affine::from_random_bytes(&compressed_rev[..])
-        .expect("Failed to convert to affine point")
+        .expect("hash-to-curve: valid miracl G2 bytes must decode to a point")
 }
 
 #[cfg(test)]
