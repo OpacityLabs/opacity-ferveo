@@ -1,6 +1,6 @@
 use std::{collections::HashMap, ops::Mul};
 
-use ark_ec::{pairing::Pairing, AffineRepr, CurveGroup, Group};
+use ark_ec::{pairing::Pairing, AffineRepr, CurveGroup, PrimeGroup};
 use ark_ff::{Field, Zero};
 use ark_poly::{
     univariate::DensePolynomial, DenseUVPolynomial, EvaluationDomain,

@@ -1,6 +1,6 @@
 use std::{collections::HashMap, hash::Hash, marker::PhantomData, ops::Mul};
 
-use ark_ec::{pairing::Pairing, AffineRepr, CurveGroup, Group};
+use ark_ec::{pairing::Pairing, AffineRepr, CurveGroup, PrimeGroup};
 use ark_ff::Zero;
 use ark_poly::{
     polynomial::univariate::DensePolynomial, DenseUVPolynomial,
@@ -224,7 +224,7 @@ pub fn verify_validator_share<E: Pairing>(
     // e(G,Y) = e(A, ek)
     // TODO: consider using multipairing - Issue #192
     let is_valid =
-        E::pairing(E::G1::generator(), *y_i) == E::pairing(a_i, ek_i);
+        E::pairing(E::G1::generator(), *y_i) == E::pairing(*a_i, ek_i);
     Ok(is_valid)
 }
 

@@ -1,6 +1,6 @@
 use std::ops::Mul;
 
-use ark_ec::{pairing::Pairing, CurveGroup, Group};
+use ark_ec::{pairing::Pairing, CurveGroup, PrimeGroup};
 use ark_ff::Field;
 use ferveo_common::serialization;
 use itertools::izip;

@@ -35,7 +35,7 @@ A preprint paper describing the construction of Ferveo and the novel cryptosyste
 
 ## Build
 
-A Rust toolchain with version `>= 1.88.0` is required. In the future, Ferveo will target the `stable` toolchain.
+A Rust toolchain with version `>= 1.89.0` is required. In the future, Ferveo will target the `stable` toolchain.
 Installation via [rustup](https://rustup.rs/) is recommended.
 
 Run `cargo build --no-default-features --release` to build.

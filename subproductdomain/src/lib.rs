@@ -1,11 +1,7 @@
 #![allow(non_snake_case)]
 #![allow(dead_code)]
 
-use std::mem;
-
-use ark_ec::{
-    pairing::Pairing, scalar_mul::fixed_base::FixedBase, AffineRepr, CurveGroup,
-};
+use ark_ec::{pairing::Pairing, AffineRepr, CurveGroup};
 use ark_ff::{FftField, Field, Zero};
 use ark_poly::{
     univariate::DensePolynomial, DenseUVPolynomial, EvaluationDomain,
@@ -19,15 +15,7 @@ pub fn fast_multiexp<Group: CurveGroup>(
     scalars: &[Group::ScalarField],
     base: Group,
 ) -> Vec<Group::Affine> {
-    let window_size = FixedBase::get_mul_window_size(scalars.len());
-
-    let scalar_bits: usize = mem::size_of::<Group::ScalarField>() * 8 - 1;
-    let base_table =
-        FixedBase::get_window_table(scalar_bits, window_size, base);
-
-    let exp =
-        FixedBase::msm::<Group>(scalar_bits, window_size, &base_table, scalars);
-    Group::normalize_batch(&exp)
+    base.batch_mul(scalars)
 }
 
 #[allow(dead_code)]
