@@ -59,16 +59,16 @@ pub fn htp_bls12381_g2(msg: &[u8]) -> ark_bls12_381::G2Affine {
     /* For arcane reasons, miracl_core uses an extra leading byte,
     which is always set to either 0x02 or 0x03 for compressed representations,
     and set to 0x04 for uncompressed representations.
-    miracl_core uses little-endian encoding for Fp2,
-    whereas bls12_381 uses big-endian. */
+    Since 2.7.0, miracl_core writes Fp2 as [imaginary BE][real BE]
+    (it wrote [real BE][imaginary BE] in 2.3.0), whereas arkworks expects
+    [real LE][imaginary LE] — a full byte reversal converts between them. */
 
     let mut compressed = [0u8; 97];
     P.tobytes(&mut compressed, true);
 
     let mut compressed_rev = [0u8; 96];
     compressed_rev.clone_from_slice(&compressed[1..]);
-    compressed_rev[000..=047].reverse();
-    compressed_rev[048..=095].reverse();
+    compressed_rev.reverse();
 
     to_affine(&mut compressed_rev)
 }

@@ -905,9 +905,9 @@ dependencies = [
 
 [[package]]
 name = "miracl_core"
-version = "2.3.0"
+version = "2.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "94c7128ba23c81f6471141b90f17654f89ef44a56e14b8a4dd0fddfccd655277"
+checksum = "592c78f17df28dccd503346e70270d33247345ab21a44ba526e10f50d56dcdf4"
 
 [[package]]
 name = "nu-ansi-term"
