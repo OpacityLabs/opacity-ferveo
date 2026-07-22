@@ -24,7 +24,7 @@ console_error_panic_hook = "0.1.7"
 derive_more = { version = "2.1", default-features = false }
 ferveo-common = { path = "ferveo-common" }
 ferveo-tdec = { path = "ferveo-tdec" }
-generic-array = "0.14.7"
+generic-array = "1.4.4"
 getrandom = "0.2"
 hex = "0.4"
 itertools = "0.15.0"
