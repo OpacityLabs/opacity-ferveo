@@ -34,40 +34,19 @@ thiserror = { workspace = true }
 zeroize = { workspace = true, features = ["derive"] }
 generic-array = { workspace = true }
 derive_more = { workspace = true, features = ["from", "as_ref", "into"] }
-pyo3 = { workspace = true, features = ["macros", "multiple-pymethods"], optional = true }
-console_error_panic_hook = { workspace = true, optional = true }
-getrandom = { workspace = true, features = ["js"], optional = true }
-js-sys = { workspace = true, optional = true }
-wasm-bindgen = { workspace = true, optional = true }
-wasm-bindgen-derive = { workspace = true, optional = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
+sha2 = { workspace = true }
 test-case = { workspace = true }
-console_error_panic_hook = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
-wasm-bindgen = { workspace = true, features = ["serde-serialize"] }
-
-[features]
-bindings-python = ["pyo3"]
-bindings-wasm = ["console_error_panic_hook", "getrandom", "js-sys", "wasm-bindgen", "wasm-bindgen-derive"]
 
 [[example]]
 name = "bench_primitives_size"
 path = "examples/bench_primitives_size.rs"
 
-#[[bench]]
-#name = "pvdkg"
-#path = "benches/benchmarks/pvdkg.rs"
-#harness = false
-
 [[bench]]
 name = "benchmarks"
 path = "benches/bench_main.rs"
 harness = false
-
-[package.metadata.cargo-machete]
-ignored = [
-    "getrandom",
-]
 

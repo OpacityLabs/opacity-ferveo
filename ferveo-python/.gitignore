@@ -1,7 +1,0 @@
-__pycache__
-*.egg-info
-*.so
-build/
-dist/
-docs/_build
-

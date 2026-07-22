@@ -19,10 +19,6 @@ use rand::{thread_rng, RngCore};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_with::serde_as;
 
-#[cfg(feature = "bindings-python")]
-use crate::bindings_python;
-#[cfg(feature = "bindings-wasm")]
-use crate::bindings_wasm;
 pub use crate::EthereumAddress;
 use crate::{
     do_verify_aggregation, Error, PubliclyVerifiableSS, Result,
@@ -122,20 +118,6 @@ impl FerveoVariant {
             "FerveoVariant::Precomputed" => Ok(FerveoVariant::Precomputed),
             _ => Err(Error::InvalidVariant(s.to_string())),
         }
-    }
-}
-
-#[cfg(feature = "bindings-python")]
-impl From<bindings_python::FerveoVariant> for FerveoVariant {
-    fn from(variant: bindings_python::FerveoVariant) -> Self {
-        variant.0
-    }
-}
-
-#[cfg(feature = "bindings-wasm")]
-impl From<bindings_wasm::FerveoVariant> for FerveoVariant {
-    fn from(variant: bindings_wasm::FerveoVariant) -> Self {
-        variant.0
     }
 }
 
