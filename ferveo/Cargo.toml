@@ -11,6 +11,11 @@ categories = ["cryptography"]
 [lib]
 bench = false
 
+[features]
+# Experimental share-refresh and handover protocols (see src/refresh.rs).
+# Off by default: opacity-stack does not use them, and they are unaudited.
+experimental-refresh = []
+
 [dependencies]
 ark-bls12-381 = { workspace = true }
 ark-ec = { workspace = true }

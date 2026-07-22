@@ -1,3 +1,23 @@
+//! Experimental share-mobility protocols: **share refresh** and **handover**.
+//!
+//! Gated behind the `experimental-refresh` cargo feature (off by default).
+//! opacity-stack does **not** use these; it rotates keys at the application
+//! layer. This code is ported from upstream ferveo, is **unaudited**, and has
+//! known gaps (below). Do not enable it for production key management without a
+//! security review.
+//!
+//! Known limitations (were upstream #200):
+//! - `UpdatableBlindedKeyShare::apply_share_updates` applies share updates
+//!   without validating their Feldman commitments. Callers must first verify
+//!   the update transcripts via `UpdateTranscript::verify_refresh`.
+//! - `PubliclyVerifiableSS::refresh` does not update the polynomial commitments
+//!   (`coeffs`) to match the refreshed shares, so a refreshed aggregate will
+//!   not pass `verify_full`.
+//!
+//! Share *recovery* (recovering a lost share at an arbitrary domain point) was
+//! removed as dead scaffolding; the update-polynomial machinery it shared with
+//! refresh remains available here.
+
 use std::{collections::HashMap, ops::Mul};
 
 use ark_ec::{pairing::Pairing, AffineRepr, CurveGroup, PrimeGroup};
@@ -68,8 +88,10 @@ impl<E: Pairing> UpdatableBlindedKeyShare<E> {
             })
             .collect();
 
-        // TODO: Validate commitments from share update
-        // FIXME: Don't forget!!!!! - #200
+        // KNOWN GAP (experimental, was #200): the Feldman commitments carried
+        // by each share update are not validated here. Callers must verify the
+        // update transcripts (`UpdateTranscript::verify_refresh`) before
+        // applying them. See the module-level docs.
         let updated_key_share = share_updates_for_index
             .iter()
             .fold(self.0.blinded_key_share, |acc, delta| {
@@ -214,24 +236,11 @@ impl<E: Pairing> UpdateTranscript<E> {
         // TODO: Cast return elements into ShareRefreshUpdate - #193
     }
 
-    pub fn create_recovery_updates(
-        domain_points_and_keys: &HashMap<u32, (DomainPoint<E>, PublicKey<E>)>,
-        x_r: &DomainPoint<E>,
-        threshold: u32,
-        rng: &mut impl RngCore,
-    ) -> UpdateTranscript<E> {
-        // Update polynomial has root at x_r
-        prepare_share_updates_with_root::<E>(
-            domain_points_and_keys,
-            x_r,
-            threshold,
-            rng,
-        )
-        // TODO: Cast return elements into ShareRecoveryUpdate - #193
-    }
-
-    // TODO: Unit tests, but only after #193
-    pub fn verify_recovery(
+    // Shared verifier for update transcripts, parametrized by the polynomial
+    // root (0 for refresh). `verify_refresh` is the only caller; the public
+    // recovery entry points were removed with the rest of the recovery
+    // scaffolding, but the general root-based logic is kept here.
+    fn verify_recovery(
         &self,
         validator_public_keys: &HashMap<u32, PublicKey<E>>,
         domain: &ark_poly::GeneralEvaluationDomain<E::ScalarField>,
@@ -489,7 +498,7 @@ mod tests_refresh {
 
     use ark_ec::CurveGroup;
     use ark_poly::EvaluationDomain;
-    use ark_std::{test_rng, UniformRand, Zero};
+    use ark_std::{test_rng, Zero};
     use ferveo_common::Keypair;
     use ferveo_tdec::{
         lagrange_basis_at, test_common::setup_simple, DomainPoint,
@@ -505,58 +514,6 @@ mod tests_refresh {
     type ScalarField =
         <ark_bls12_381::Bls12_381 as ark_ec::pairing::Pairing>::ScalarField;
     type G2 = <ark_bls12_381::Bls12_381 as ark_ec::pairing::Pairing>::G2;
-
-    // TODO: Part of recovery tests - #193
-    // /// Using tdec test utilities here instead of PVSS to test the internals of the shared key recovery
-    // fn create_updated_private_key_shares<R: RngCore>(
-    //     rng: &mut R,
-    //     threshold: u32,
-    //     x_r: &Fr,
-    //     remaining_participants: &[PrivateDecryptionContextSimple<E>],
-    // ) -> HashMap<u32, UpdatedPrivateKeyShare<E>> {
-    //     // Each participant prepares an update for each other participant
-    //     let domain_points_and_keys = remaining_participants
-    //         .iter()
-    //         .map(|c| {
-    //             let ctxt = &c.public_decryption_contexts[c.index];
-    //             (c.index as u32, (ctxt.domain, ctxt.validator_public_key))
-    //         })
-    //         .collect::<HashMap<_, _>>();
-    //     let share_updates = remaining_participants
-    //         .iter()
-    //         .map(|p| {
-    //             let share_updates = UpdateTranscript::create_recovery_updates(
-    //                 &domain_points_and_keys,
-    //                 x_r,
-    //                 threshold,
-    //                 rng,
-    //             );
-    //             (p.index as u32, share_updates.updates)
-    //         })
-    //         .collect::<HashMap<u32, _>>();
-
-    //     // Participants share updates and update their shares
-    //     let updated_private_key_shares = remaining_participants
-    //         .iter()
-    //         .map(|p| {
-    //             // Current participant receives updates from other participants
-    //             let updates_for_participant: Vec<_> = share_updates
-    //                 .values()
-    //                 .map(|updates| {
-    //                     updates.get(&(p.index as u32)).cloned().unwrap()
-    //                 })
-    //                 .collect();
-
-    //             // And updates their share
-    //             let updated_share =
-    //                 PrivateKeyShare(p.private_key_share.clone())
-    //                     .create_updated_key_share(&updates_for_participant);
-    //             (p.index as u32, updated_share)
-    //         })
-    //         .collect::<HashMap<u32, _>>();
-
-    //     updated_private_key_shares
-    // }
 
     /// `x_r` is the point at which the share is to be recovered
     fn combine_private_shares_at(
@@ -577,184 +534,6 @@ mod tests_refresh {
             zip_eq(updated_shares_, lagrange).map(|(y_j, l)| y_j.mul(l));
         let y_r = prods.fold(G2::zero(), |acc, y_j| acc + y_j);
         ferveo_tdec::PrivateKeyShare(y_r.into_affine())
-    }
-
-    /// Ñ parties (where t <= Ñ <= N) jointly execute a "share recovery" algorithm, and the output is 1 new share.
-    /// The new share is intended to restore a previously existing share, e.g., due to loss or corruption.
-    // FIXME: This test is currently broken, and adjusted to allow compilation
-    #[ignore = "Re-introduce recovery tests - #193"]
-    #[test_case(4, 4; "number of shares (validators) is a power of 2")]
-    #[test_case(7, 7; "number of shares (validators) is not a power of 2")]
-    fn tdec_simple_variant_share_recovery_at_selected_point(
-        shares_num: u32,
-        _validators_num: u32,
-    ) {
-        let rng = &mut test_rng();
-        let security_threshold = shares_num * 2 / 3;
-
-        let (_, _, mut contexts) = setup_simple::<E>(
-            shares_num as usize,
-            security_threshold as usize,
-            rng,
-        );
-
-        // Prepare participants
-
-        // First, save the soon-to-be-removed participant
-        let selected_participant = contexts.pop().unwrap();
-        let _x_r = selected_participant
-            .public_decryption_contexts
-            .last()
-            .unwrap()
-            .domain;
-        let _original_private_key_share =
-            selected_participant.private_key_share;
-
-        // Remove the selected participant from the contexts and all nested structures
-        let mut remaining_participants = contexts;
-        for p in &mut remaining_participants {
-            p.public_decryption_contexts.pop().unwrap();
-        }
-
-        // Each participant prepares an update for each other participant, and uses it to create a new share fragment
-        // let updated_private_key_shares = create_updated_private_key_shares(
-        //     rng,
-        //     security_threshold,
-        //     &x_r,
-        //     &remaining_participants,
-        // );
-        // We only need `security_threshold` updates to recover the original share
-        // let updated_private_key_shares = updated_private_key_shares
-        //     .into_iter()
-        //     .take(security_threshold as usize)
-        //     .collect::<HashMap<_, _>>();
-
-        // Now, we have to combine new share fragments into a new share
-        let _domain_points = remaining_participants
-            .into_iter()
-            .map(|ctxt| {
-                (
-                    ctxt.index as u32,
-                    ctxt.public_decryption_contexts[ctxt.index].domain,
-                )
-            })
-            .collect::<HashMap<u32, _>>();
-        // let new_private_key_share =
-        //     PrivateKeyShare::recover_share_from_updated_private_shares(
-        //         &x_r,
-        //         &domain_points,
-        //         &updated_private_key_shares,
-        //     )
-        //     .unwrap();
-
-        // The new share should be the same as the original
-        // assert_eq!(new_private_key_share, original_private_key_share);
-
-        // But if we don't have enough private share updates, the resulting private share will be incorrect
-        // let not_enough_shares = updated_private_key_shares
-        //     .into_iter()
-        //     .take(security_threshold as usize - 1)
-        //     .collect::<HashMap<_, _>>();
-        // let incorrect_private_key_share =
-        //     PrivateKeyShare::recover_share_from_updated_private_shares(
-        //         &x_r,
-        //         &domain_points,
-        //         &not_enough_shares,
-        //     )
-        //     .unwrap();
-        unimplemented!("Re-introduce recovery tests - #193");
-    }
-
-    /// Ñ parties (where t <= Ñ <= N) jointly execute a "share recovery" algorithm, and the output is 1 new share.
-    /// The new share is independent of the previously existing shares. We can use this to on-board a new participant into an existing cohort.
-    // FIXME: This test is currently broken, and adjusted to allow compilation
-    #[ignore = "Re-introduce recovery tests - #193"]
-    #[test_case(4; "number of shares (validators) is a power of 2")]
-    #[test_case(7; "number of shares (validators) is not a power of 2")]
-    fn tdec_simple_variant_share_recovery_at_random_point(shares_num: u32) {
-        let rng = &mut test_rng();
-        let security_threshold = shares_num * 2 / 3;
-
-        let (_, _shared_private_key, mut contexts) = setup_simple::<E>(
-            shares_num as usize,
-            security_threshold as usize,
-            rng,
-        );
-
-        // Prepare participants
-
-        // Remove one participant from the contexts and all nested structures
-        let removed_participant = contexts.pop().unwrap();
-        let mut remaining_participants = contexts.clone();
-        for p in &mut remaining_participants {
-            p.public_decryption_contexts.pop().unwrap();
-        }
-
-        // Now, we're going to recover a new share at a random point and check that the shared secret is still the same
-
-        // Our random point
-        let x_r = ScalarField::rand(rng);
-
-        // Each remaining participant prepares an update for every other participant, and uses it to create a new share fragment
-        // let share_recovery_updates = create_updated_private_key_shares(
-        //     rng,
-        //     security_threshold,
-        //     &x_r,
-        //     &remaining_participants,
-        // );
-        // We only need `threshold` updates to recover the original share
-        // let share_recovery_updates = share_recovery_updates
-        //     .into_iter()
-        //     .take(security_threshold as usize)
-        //     .collect::<HashMap<_, _>>();
-        let domain_points = &mut remaining_participants
-            .into_iter()
-            .map(|ctxt| {
-                (
-                    ctxt.index as u32,
-                    ctxt.public_decryption_contexts[ctxt.index].domain,
-                )
-            })
-            .collect::<HashMap<_, _>>();
-
-        // Now, we have to combine new share fragments into a new share
-        // let recovered_private_key_share =
-        //     PrivateKeyShare::recover_share_from_updated_private_shares(
-        //         &x_r,
-        //         domain_points,
-        //         &share_recovery_updates,
-        //     )
-        //     .unwrap();
-
-        // Finally, let's recreate the shared private key from some original shares and the recovered one
-        let _private_shares = contexts
-            .into_iter()
-            .map(|ctxt| (ctxt.index as u32, ctxt.private_key_share))
-            .collect::<HashMap<u32, _>>();
-
-        // Need to update these to account for recovered private key share
-        domain_points.insert(removed_participant.index as u32, x_r);
-        // private_shares.insert(
-        //     removed_participant.index as u32,
-        //     recovered_private_key_share.0.clone(),
-        // );
-
-        // This is a workaround for a type mismatch - We need to convert the private shares to updated private shares
-        // This is just to test that we are able to recover the shared private key from the updated private shares
-        // let updated_private_key_shares = private_shares
-        //     .into_iter()
-        //     .map(|(share_index, share)| {
-        //         (share_index, UpdatedPrivateKeyShare(share))
-        //     })
-        // .collect::<HashMap<u32, _>>();
-        // let new_shared_private_key =
-        //     PrivateKeyShare::recover_share_from_updated_private_shares(
-        //         &ScalarField::zero(),
-        //         domain_points,
-        //         &updated_private_key_shares,
-        //     )
-        //     .unwrap();
-        unimplemented!("Re-introduce recovery tests - #193");
     }
 
     /// Ñ parties (where t <= Ñ <= N) jointly execute a "share refresh" algorithm.
