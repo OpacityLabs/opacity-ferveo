@@ -8,7 +8,7 @@ pub use ark_bls12_381::Bls12_381 as EllipticCurve;
 use std::hint::black_box;
 
 use criterion::{criterion_group, BenchmarkId, Criterion};
-use ferveo_nucypher::*;
+use ferveo::*;
 use rand::prelude::StdRng;
 use rand::SeedableRng;
 

@@ -1,14 +1,12 @@
 [package]
-name = "ferveo-nucypher"
-version = "0.4.0"
+name = "ferveo"
+version = "0.5.0"
 edition = "2021"
 license = "GPL-3.0"
-repository = "https://github.com/nucypher/ferveo"
-readme = "README.md"
+repository = "https://github.com/OpacityLabs/opacity-ferveo"
 description = "An implementation of a DKG protocol for threshold decryption."
 keywords = ["DKG"]
 categories = ["cryptography"]
-authors = ["David Nuñez <david@nucypher.com>", "Piotr Roslaniec <p.roslaniec@gmail.com>", "Heliax AG <hello@heliax.dev>"]
 
 [lib]
 bench = false
@@ -21,15 +19,15 @@ ark-poly = { workspace = true }
 ark-serialize = { workspace = true }
 ark-std = { workspace = true }
 bincode = { workspace = true }
-ferveo-common = { package = "ferveo-nucypher-common", path = "../ferveo-common", version = "^0.4.0" }
-ferveo-tdec = { package = "ferveo-nucypher-tdec", path = "../ferveo-tdec", features = ["api", "test-common"], version = "^0.4.0" }
+ferveo-common = { path = "../ferveo-common" }
+ferveo-tdec = { path = "../ferveo-tdec", features = ["api", "test-common"] }
 hex = { workspace = true }
 itertools = { workspace = true }
 rand = { workspace = true }
 rand_core = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_with = { workspace = true }
-subproductdomain = { package = "subproductdomain-nucypher", path = "../subproductdomain", version = "^0.4.0" }
+subproductdomain = { path = "../subproductdomain" }
 thiserror = { workspace = true }
 zeroize = { workspace = true, features = ["derive"] }
 generic-array = { workspace = true }
