@@ -50,6 +50,12 @@ and must be treated as a wire-format break, not a test to update.
 
 This library has not been independently audited. Use at your own risk.
 
+## Security Notes
+
+Deliberate cryptographic decisions and assumptions — for example, the PVSS
+proof-of-knowledge (σ) soundness assumption and its reuse audit — are recorded in
+[docs/security-notes.md](docs/security-notes.md).
+
 ## License
 
 GPL-3.0. See [LICENSE](LICENSE).

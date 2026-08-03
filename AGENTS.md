@@ -17,9 +17,9 @@
   `rust-toolchain.toml` and `mise.toml`.
 - If your change moves architecture (crate added/removed/repurposed,
   protocol flow changed, serialization changed, dependency policy
-  changed), update `.agents/skills/opacity-ferveo-map/SKILL.md` and its
-  mirror in `.claude/skills/` in the same PR. Do not add volatile detail
-  there (function names, line numbers).
+  changed), update `.agents/skills/opacity-ferveo-map/SKILL.md` in the
+  same PR (`.claude/` symlinks to it). Do not add volatile detail there
+  (function names, line numbers).
 
 ## Wire format is sacred
 
