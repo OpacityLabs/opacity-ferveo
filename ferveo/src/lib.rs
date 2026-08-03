@@ -1,11 +1,5 @@
 #![warn(rust_2018_idioms)]
 
-#[cfg(feature = "bindings-python")]
-pub mod bindings_python;
-
-#[cfg(feature = "bindings-wasm")]
-pub mod bindings_wasm;
-
 pub mod api;
 pub mod dkg;
 pub mod primitives;
