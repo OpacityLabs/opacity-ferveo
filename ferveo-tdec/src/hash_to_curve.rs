@@ -97,6 +97,30 @@ mod tests {
 
     use super::*;
 
+    /// Isolated check of the miracl_core -> arkworks byte-order conversion.
+    /// Both libraries independently hardcode the standard BLS12-381 G2
+    /// generator, so serializing miracl's generator and converting must
+    /// reproduce arkworks' generator. The conversion drops miracl's leading
+    /// y-parity byte and `to_affine` reconstructs y deterministically, so the
+    /// result is the generator up to sign; a byte-order mistake would instead
+    /// scramble the x-coordinate entirely.
+    #[test]
+    fn miracl_serialization_converts_to_arkworks() {
+        let mut compressed = [0u8; 97];
+        ECP2::generator().tobytes(&mut compressed, true);
+
+        let mut compressed_rev = [0u8; 96];
+        compressed_rev.clone_from_slice(&compressed[1..]);
+        compressed_rev.reverse();
+
+        let converted = to_affine(&mut compressed_rev);
+        let generator = ark_bls12_381::G2Affine::generator();
+        assert!(
+            converted == generator || converted == -generator,
+            "miracl->arkworks byte-order conversion is wrong"
+        );
+    }
+
     fn test_hash_to_g2(msg: &[u8], expected_hex_string: &str) {
         let mut expected_compressed = [0u8; 96];
         hex::decode_to_slice(expected_hex_string, &mut expected_compressed)

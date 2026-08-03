@@ -174,7 +174,10 @@ impl<E: Pairing, T> PubliclyVerifiableSS<E, T> {
 
     /// Verify the pvss transcript from a validator. This is not the full check,
     /// i.e. we optimistically do not check the commitment. This is deferred
-    /// until the aggregation step
+    /// until the aggregation step.
+    ///
+    /// This is the sole verifier of the proof-of-knowledge `sigma`; its
+    /// soundness rests on an AGM/KOE assumption. See `docs/security-notes.md`.
     pub fn verify_optimistic(&self) -> bool {
         // We're only checking the proof of knowledge here, sigma ?= h^s
         // "Does the first coefficient of the secret polynomial match the proof of knowledge?"
