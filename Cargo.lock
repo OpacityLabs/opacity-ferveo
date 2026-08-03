@@ -619,8 +619,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 
 [[package]]
-name = "ferveo-nucypher"
-version = "0.4.0"
+name = "ferveo"
+version = "0.5.0"
 dependencies = [
  "ark-bls12-381",
  "ark-ec",
@@ -631,8 +631,8 @@ dependencies = [
  "bincode",
  "criterion",
  "derive_more",
- "ferveo-nucypher-common",
- "ferveo-nucypher-tdec",
+ "ferveo-common",
+ "ferveo-tdec",
  "generic-array 1.4.4",
  "hex",
  "itertools 0.15.0",
@@ -641,15 +641,15 @@ dependencies = [
  "serde",
  "serde_with",
  "sha2",
- "subproductdomain-nucypher",
+ "subproductdomain",
  "test-case",
  "thiserror",
  "zeroize",
 ]
 
 [[package]]
-name = "ferveo-nucypher-common"
-version = "0.4.0"
+name = "ferveo-common"
+version = "0.5.0"
 dependencies = [
  "ark-bls12-381",
  "ark-ec",
@@ -663,8 +663,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "ferveo-nucypher-tdec"
-version = "0.4.0"
+name = "ferveo-tdec"
+version = "0.5.0"
 dependencies = [
  "ark-bls12-381",
  "ark-ec",
@@ -675,7 +675,7 @@ dependencies = [
  "bincode",
  "chacha20poly1305",
  "criterion",
- "ferveo-nucypher-common",
+ "ferveo-common",
  "hex",
  "itertools 0.15.0",
  "miracl_core",
@@ -685,7 +685,7 @@ dependencies = [
  "serde_bytes",
  "serde_with",
  "sha2",
- "subproductdomain-nucypher",
+ "subproductdomain",
  "thiserror",
  "zeroize",
 ]
@@ -1329,8 +1329,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
-name = "subproductdomain-nucypher"
-version = "0.4.0"
+name = "subproductdomain"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "ark-bls12-381",

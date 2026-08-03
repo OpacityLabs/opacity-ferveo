@@ -1,9 +1,8 @@
 [package]
-name = "subproductdomain-nucypher"
-version = "0.4.0"
+name = "subproductdomain"
+version = "0.5.0"
 edition = "2021"
 license = "GPL-3.0"
-authors = ["David Nuñez <david@nucypher.com>", "Heliax AG <hello@heliax.dev>", "Piotr Roslaniec <p.roslaniec@gmail.com>"]
 description = "Implements subproduct domain algorithm"
 
 [dependencies]

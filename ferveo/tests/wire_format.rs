@@ -11,8 +11,7 @@
 
 use std::{collections::HashMap, str::FromStr};
 
-use ferveo_common::serialization::{FromBytes, ToBytes};
-use ferveo_nucypher::{
+use ferveo::{
     api::{
         combine_shares_simple, decrypt_with_shared_secret,
         AggregatedTranscript, Ciphertext, Dkg, Transcript, Validator,
@@ -20,6 +19,7 @@ use ferveo_nucypher::{
     },
     EthereumAddress,
 };
+use ferveo_common::serialization::{FromBytes, ToBytes};
 use sha2::{Digest, Sha256};
 
 const FIXTURE: &str = include_str!("golden_vectors_v0.txt");

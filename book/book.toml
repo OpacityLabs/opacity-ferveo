@@ -1,9 +1,0 @@
-[book]
-authors = ["NuCypher"]
-language = "en"
-multilingual = false
-src = "src"
-title = "Ferveo"
-
-[output.html]
-mathjax-support = true
