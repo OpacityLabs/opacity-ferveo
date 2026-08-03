@@ -39,6 +39,14 @@ Rationale:
    prevents a dealer from making its contribution a function of other dealers'
    contributions — the very attack that an *extractable* proof of knowledge would
    otherwise be needed to rule out.
+3. **Single dealer in the current deployment.** The DKG is conducted
+   centrally: the opacity-stack director is the sole dealer, generating all
+   shares itself and distributing them to the nodes. Rogue-key-style adaptive
+   contribution requires multiple dealers and cannot arise at all today. The
+   assumption becomes operative only if a multi-dealer flow is adopted — a
+   p2p DKG, or the refresh/handover/recovery subsystems (multi-party update
+   transcripts), none of which opacity-stack currently uses. Revisit this
+   section before enabling any of those.
 
 Independently, `σ` is **wire-format-locked**: it is serialized into every
 transcript and pinned by the golden vectors in `ferveo/tests/wire_format.rs`, so
