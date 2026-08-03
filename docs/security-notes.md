@@ -41,12 +41,7 @@ Rationale:
    witness, so the reduction goes through. The question is whether *this*
    reduction is sound under the AGM — it is — not whether the AGM is acceptable in
    general.
-2. **Adaptive choice is precluded out-of-band.** DKG contributions are generated
-   inside attested TEEs. Enclave-resident, attested key generation independently
-   prevents a dealer from making its contribution a function of other dealers'
-   contributions — the very attack that an *extractable* proof of knowledge would
-   otherwise be needed to rule out.
-3. **Single dealer in the current deployment.** The DKG is conducted
+2. **Single dealer in the current deployment.** The DKG is conducted
    centrally: the opacity-stack director is the sole dealer, generating all
    shares itself and distributing them to the nodes. Rogue-key-style adaptive
    contribution requires multiple dealers and cannot arise at all today. The
@@ -67,6 +62,34 @@ Opacity crypto review brief —
 References: IACR ePrint 2022/898 §4.2.3; upstream NuCypher ferveo issue #44. This
 topic was formerly tracked upstream as #201 (and the hash-to-curve base-point
 note as #195).
+
+### If/when the DKG becomes multi-dealer
+
+A fully decentralized DKG — every party generating and broadcasting its own
+transcript — is a plausible future direction if the system keeps its current
+architecture, but it is **not planned or designed today** (too many unknowns to
+commit to it). The refresh/handover subsystems (#200) are a nearer
+multi-party-dealing flow. Either one introduces multiple dealers — exactly what
+point 2 (single dealer) rules out today. Footguns to revisit *before* enabling
+any multi-party dealing:
+
+- **Point 1 stops being a footnote and becomes the operative security argument.**
+  Today the AGM/KOE reduction is never exercised — there is no adversarial dealer.
+  Under multi-dealer, a malicious dealer can try to choose its contribution as a
+  function of the others' (rogue-key style), and aggregation soundness then rests
+  entirely on the AGM/KOE proof-of-knowledge of `σ`. That dependency must be
+  accepted deliberately (and ideally independently reviewed), not inherited
+  silently.
+- **`σ` is proof of *possession*, not extractable knowledge without the AGM.** A
+  deployment that cannot assume the AGM would need `σ` replaced by an extractable
+  PoK (Schnorr / Fiat–Shamir) — a wire-format-breaking change.
+- **Attested TEEs substitute for the PoK only if *every* dealer is enclaved.**
+  Leaning on enclave-honest generation instead of an extractable `σ` holds only
+  when all parties run attested TEEs; a DKG across parties that are not all
+  enclaved loses that out-of-band guarantee, leaving only the AGM/KOE argument.
+
+None of this affects the current single-dealer deployment; it is recorded so the
+assumption is revisited — not rediscovered — if the architecture moves that way.
 
 ### σ reuse audit (2026-07-23)
 
