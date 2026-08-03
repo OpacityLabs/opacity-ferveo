@@ -31,7 +31,7 @@ pub enum FerveoPythonError {
 
 impl From<FerveoPythonError> for PyErr {
     fn from(err: FerveoPythonError) -> PyErr {
-        let default = || PyRuntimeError::new_err(format!("{:?}", &err));
+        let default = || PyRuntimeError::new_err(format!("{err:?}"));
 
         use FerveoPythonError::*;
         match &err {

@@ -59,16 +59,16 @@ pub fn htp_bls12381_g2(msg: &[u8]) -> ark_bls12_381::G2Affine {
     /* For arcane reasons, miracl_core uses an extra leading byte,
     which is always set to either 0x02 or 0x03 for compressed representations,
     and set to 0x04 for uncompressed representations.
-    miracl_core uses little-endian encoding for Fp2,
-    whereas bls12_381 uses big-endian. */
+    Since 2.7.0, miracl_core writes Fp2 as [imaginary BE][real BE]
+    (it wrote [real BE][imaginary BE] in 2.3.0), whereas arkworks expects
+    [real LE][imaginary LE] — a full byte reversal converts between them. */
 
     let mut compressed = [0u8; 97];
     P.tobytes(&mut compressed, true);
 
     let mut compressed_rev = [0u8; 96];
     compressed_rev.clone_from_slice(&compressed[1..]);
-    compressed_rev[000..=047].reverse();
-    compressed_rev[048..=095].reverse();
+    compressed_rev.reverse();
 
     to_affine(&mut compressed_rev)
 }
@@ -89,6 +89,30 @@ fn to_affine(compressed_rev: &mut [u8; 96]) -> Affine<Config> {
 mod tests {
 
     use super::*;
+
+    /// Isolated check of the miracl_core -> arkworks byte-order conversion.
+    /// Both libraries independently hardcode the standard BLS12-381 G2
+    /// generator, so serializing miracl's generator and converting must
+    /// reproduce arkworks' generator. The conversion drops miracl's leading
+    /// y-parity byte and `to_affine` reconstructs y deterministically, so the
+    /// result is the generator up to sign; a byte-order mistake would instead
+    /// scramble the x-coordinate entirely.
+    #[test]
+    fn miracl_serialization_converts_to_arkworks() {
+        let mut compressed = [0u8; 97];
+        ECP2::generator().tobytes(&mut compressed, true);
+
+        let mut compressed_rev = [0u8; 96];
+        compressed_rev.clone_from_slice(&compressed[1..]);
+        compressed_rev.reverse();
+
+        let converted = to_affine(&mut compressed_rev);
+        let generator = ark_bls12_381::G2Affine::generator();
+        assert!(
+            converted == generator || converted == -generator,
+            "miracl->arkworks byte-order conversion is wrong"
+        );
+    }
 
     fn test_hash_to_g2(msg: &[u8], expected_hex_string: &str) {
         let mut expected_compressed = [0u8; 96];

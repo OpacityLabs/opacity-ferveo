@@ -47,8 +47,8 @@ impl<E: Pairing> PublicKey<E> {
 
     pub fn from_bytes(bytes: &[u8]) -> Result<PublicKey<E>> {
         let bytes =
-            GenericArray::<u8, U96>::from_exact_iter(bytes.iter().cloned())
-                .ok_or_else(|| {
+            GenericArray::<u8, U96>::try_from_iter(bytes.iter().cloned())
+                .map_err(|_| {
                     Error::InvalidByteLength(
                         Self::serialized_size(),
                         bytes.len(),

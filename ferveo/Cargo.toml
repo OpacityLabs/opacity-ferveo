@@ -25,10 +25,8 @@ ferveo-common = { package = "ferveo-nucypher-common", path = "../ferveo-common",
 ferveo-tdec = { package = "ferveo-nucypher-tdec", path = "../ferveo-tdec", features = ["api", "test-common"], version = "^0.4.0" }
 hex = { workspace = true }
 itertools = { workspace = true }
-measure_time = { workspace = true }
 rand = { workspace = true }
 rand_core = { workspace = true }
-rand_old = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_with = { workspace = true }
 subproductdomain = { package = "subproductdomain-nucypher", path = "../subproductdomain", version = "^0.4.0" }
@@ -45,13 +43,10 @@ wasm-bindgen-derive = { workspace = true, optional = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
-digest = { workspace = true, features = ["alloc"] }
-pprof = { workspace = true, features = ["flamegraph", "criterion"] }
 test-case = { workspace = true }
 console_error_panic_hook = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 wasm-bindgen = { workspace = true, features = ["serde-serialize"] }
-cargo-smart-release = { workspace = true }
 
 [features]
 bindings-python = ["pyo3"]
@@ -74,6 +69,5 @@ harness = false
 [package.metadata.cargo-machete]
 ignored = [
     "getrandom",
-    "rand_old" # used by benchmarks/pairing.rs
 ]
 

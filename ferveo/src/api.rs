@@ -157,8 +157,8 @@ impl DkgPublicKey {
 
     pub fn from_bytes(bytes: &[u8]) -> Result<DkgPublicKey> {
         let bytes =
-            GenericArray::<u8, U48>::from_exact_iter(bytes.iter().cloned())
-                .ok_or_else(|| {
+            GenericArray::<u8, U48>::try_from_iter(bytes.iter().cloned())
+                .map_err(|_| {
                     Error::InvalidByteLength(
                         Self::serialized_size(),
                         bytes.len(),
