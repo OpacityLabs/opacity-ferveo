@@ -31,9 +31,16 @@ its own, let a security reduction *extract* the witness `s`.
 
 Rationale:
 
-1. **No new assumption.** The system already relies on KZG polynomial
-   commitments, whose knowledge-soundness requires the AGM. Relying on the AGM
-   for `σ` introduces nothing the system does not already assume.
+1. **The aggregation reduction is sound under the AGM/KOE.** The security
+   argument for PVSS transcript aggregation reduces to `σ` being a proof of
+   knowledge of the dealer's secret `s` — extractability is precisely what
+   prevents a dealer from choosing its contribution as a function of the others'.
+   Under the AGM (equivalently, a knowledge-of-exponent assumption), the
+   discrete-log-equality check `e(F₀,G₂)=e(G₁,σ)` supplies that proof of
+   knowledge: an algebraic dealer's representation of its contribution exposes the
+   witness, so the reduction goes through. The question is whether *this*
+   reduction is sound under the AGM — it is — not whether the AGM is acceptable in
+   general.
 2. **Adaptive choice is precluded out-of-band.** DKG contributions are generated
    inside attested TEEs. Enclave-resident, attested key generation independently
    prevents a dealer from making its contribution a function of other dealers'
