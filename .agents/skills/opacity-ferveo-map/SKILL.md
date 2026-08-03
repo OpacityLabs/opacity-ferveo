@@ -36,6 +36,45 @@ Each validator: `Dkg::new(tau, shares_num, threshold, validators, me)` →
 `create_decryption_share_simple` (or `_precomputed`); client
 `combine_shares_simple` → `decrypt_with_shared_secret`.
 
+### Decryption shares: implementation deviates from the paper
+
+`ferveo-tdec` intentionally deviates from §4.4 of the Ferveo paper (eprint
+2022/898) in what a "decryption share" is. Design note: nucypher/ferveo#42,
+comment 1398953777 (cited in decryption.rs). Soundness discussion: Linear
+VDN-5 ("opacity-ferveo #201: is S a sound proof of knowledge").
+
+Notation: `U = [r]G` ∈ G1 is the ciphertext commitment. Per share index i:
+`dk_i` = validator blinding scalar (`Keypair::decryption_key`),
+`ek_i = [dk_i]H` ∈ G2 (validator public key), `Y_i = [f(ω_i)]ek_i` ∈ G2 =
+blinded key share (public, from the aggregated transcript; `share_aggregate`
+in code), `Z_i = [dk_i⁻¹]Y_i = [f(ω_i)]H` = unblinded `PrivateKeyShare` ∈ G2.
+
+- **Paper (§4.4.3–4.4.5):** the share is the 48-byte G1 element
+  `D_i = [dk_i⁻¹]U`, verified by `e(D_i, ek_i) == e(U, H)`; the *combiner*
+  computes the pairings: `S = ∏ e(D_i, [λ_i(0)]Y_i)`.
+- **Implementation:** the pairing is offloaded to the share creator; the
+  published share is a G_T element (`decryption_share: E::TargetField`,
+  ~576 B serialized):
+  - Simple: `D_i = e(U, Z_i)` (decryption.rs); combine is pairing-free:
+    `S = ∏ D_i^{λ_i}` (combine.rs::share_combine_simple).
+  - Precomputed: `D_i = e([λ_i]U, Z_i)` with λ_i computed over a validator
+    subset fixed at share-creation time
+    (key_share.rs::create_decryption_share_precomputed); combine is a bare
+    product `S = ∏ D_i`. Shares are bound to their subset and not reusable
+    across subsets. (The `FerveoVariant::Precomputed` doc comment saying
+    "n of n" predates subset support.)
+
+  Equivalent to the paper by bilinearity:
+  `e([dk_i⁻¹]U, Y_i) = e([dk_i⁻¹]U, [f(ω_i)·dk_i]H) = e(U, [f(ω_i)]H) = e(U, Z_i)`.
+
+The paper's G1 share survives as `ValidatorShareChecksum`: `C_i = [dk_i⁻¹]U`.
+A raw G_T element carries no evidence it was computed as a pairing, so share
+verification checks two equations (decryption.rs::ValidatorShareChecksum::verify):
+1. `D_i == e(C_i, Y_i)` — binds the G_T value to the checksum;
+2. `e(C_i, ek_i) == e(U, H)` — the paper's §4.4.4 check on the checksum.
+Per the design note, verification is optimistic: combine unverified shares
+first, run the checks only if payload decryption fails.
+
 ## Invariants and their fences
 
 - **Wire format**: every serialized object is bincode-1-default (fixint
