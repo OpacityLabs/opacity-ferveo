@@ -9,9 +9,11 @@ use rand::RngCore;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    assert_no_share_duplicates, refresh, AggregatedTranscript, Error,
-    EthereumAddress, PubliclyVerifiableSS, Result, UpdateTranscript, Validator,
+    assert_no_share_duplicates, AggregatedTranscript, Error, EthereumAddress,
+    PubliclyVerifiableSS, Result, Validator,
 };
+#[cfg(feature = "experimental-refresh")]
+use crate::{refresh, UpdateTranscript};
 
 pub type DomainIndexMap<E> = HashMap<u32, DomainPoint<E>>;
 pub type ValidatorMessage<E> = (Validator<E>, PubliclyVerifiableSS<E>);
@@ -227,6 +229,7 @@ impl<E: Pairing> PubliclyVerifiableDkg<E> {
 
     // Returns a new refresh transcript for current validators in DKG
     // TODO: Allow to pass a parameter to restrict target validators - #199
+    #[cfg(feature = "experimental-refresh")]
     pub fn generate_refresh_transcript<R: RngCore>(
         &self,
         rng: &mut R,
@@ -239,6 +242,7 @@ impl<E: Pairing> PubliclyVerifiableDkg<E> {
     }
 
     // Returns a handover transcript between an incoming and a departing validator
+    #[cfg(feature = "experimental-refresh")]
     pub fn generate_handover_transcript<R: RngCore>(
         &self,
         aggregate: &AggregatedTranscript<E>,
