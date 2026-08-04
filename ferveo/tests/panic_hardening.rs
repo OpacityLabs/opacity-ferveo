@@ -11,7 +11,7 @@ use ferveo::{
         AggregatedTranscript, Dkg, DkgPublicKey, Validator, ValidatorKeypair,
         ValidatorMessage,
     },
-    EthereumAddress,
+    Error, EthereumAddress,
 };
 use ferveo_common::serialization::{FromBytes, ToBytes};
 use rand::SeedableRng;
@@ -59,9 +59,14 @@ fn empty_coeffs_transcript_is_rejected_by_aggregation() {
         .unwrap();
 
     messages[1].1.coeffs.clear();
+    // Rejected per-dealer by verify_transcripts (verify_optimistic returns
+    // false for an empty commitment vector) before aggregation is reached.
     assert!(
-        dkg.aggregate_transcripts(&messages).is_err(),
-        "empty-coeffs transcript must be an error, not a panic"
+        matches!(
+            dkg.aggregate_transcripts(&messages),
+            Err(Error::InvalidPvssTranscript(_))
+        ),
+        "empty-coeffs transcript must be rejected with a specific error"
     );
 }
 
@@ -76,8 +81,11 @@ fn mismatched_coeffs_length_is_rejected_by_aggregation() {
 
     messages[1].1.coeffs.pop();
     assert!(
-        dkg.aggregate_transcripts(&messages).is_err(),
-        "coeff-length mismatch must be an error, not a panic"
+        matches!(
+            dkg.aggregate_transcripts(&messages),
+            Err(Error::MismatchedTranscriptLengths("coefficients", _, _))
+        ),
+        "coeff-length mismatch must name the mismatched field"
     );
 }
 
@@ -91,8 +99,11 @@ fn mismatched_shares_length_is_rejected_by_aggregation() {
 
     messages[1].1.shares.pop();
     assert!(
-        dkg.aggregate_transcripts(&messages).is_err(),
-        "share-length mismatch must be an error, not a panic"
+        matches!(
+            dkg.aggregate_transcripts(&messages),
+            Err(Error::MismatchedTranscriptLengths("shares", _, _))
+        ),
+        "share-length mismatch must name the mismatched field"
     );
 }
 
@@ -105,7 +116,10 @@ fn aggregated_transcript_new_rejects_malformed_transcripts() {
 
     messages[1].1.coeffs.pop();
     assert!(
-        AggregatedTranscript::new(&messages).is_err(),
+        matches!(
+            AggregatedTranscript::new(&messages),
+            Err(Error::MismatchedTranscriptLengths("coefficients", _, _))
+        ),
         "malformed transcript must be an error, not a panic"
     );
 }
@@ -127,13 +141,58 @@ fn empty_coeffs_aggregate_is_rejected_by_verify() {
     inner.aggregate.coeffs.clear();
     let tampered_bytes = bincode::serialize(&inner).unwrap();
 
-    // Deserialization may reject it outright; if it does not, verification must.
-    if let Ok(tampered) = AggregatedTranscript::from_bytes(&tampered_bytes) {
-        assert!(
-            tampered.verify(SHARES_NUM, THRESHOLD, &messages).is_err(),
-            "empty-coeffs aggregate must be an error, not a panic"
-        );
+    // Deserialization must succeed for this test to mean anything: the point is
+    // that *verification* rejects the tampered aggregate. If a future change
+    // makes from_bytes reject it, this assertion fails loudly rather than
+    // letting the test pass vacuously.
+    let tampered = AggregatedTranscript::from_bytes(&tampered_bytes)
+        .expect("tampered aggregate should still deserialize");
+    assert!(
+        tampered.verify(SHARES_NUM, THRESHOLD, &messages).is_err(),
+        "empty-coeffs aggregate must be an error, not a panic"
+    );
+}
+
+/// The `EmptyTranscript` guard inside `do_verify_aggregation` is only reached
+/// when a *peer message* carries no commitments — `verify_optimistic` rejects a
+/// malformed aggregate earlier, so this needs its own input.
+#[test]
+fn empty_coeffs_peer_message_is_rejected_by_verify() {
+    let rng = &mut rand::rngs::StdRng::seed_from_u64(10);
+    let (_, validators, messages) = setup(rng);
+    let dkg = Dkg::new(TAU, SHARES_NUM, THRESHOLD, &validators, &validators[0])
+        .unwrap();
+    let aggregate = dkg.aggregate_transcripts(&messages).unwrap();
+
+    let mut tampered = messages.clone();
+    tampered[1].1.coeffs.clear();
+    assert!(
+        matches!(
+            aggregate.verify(SHARES_NUM, THRESHOLD, &tampered),
+            Err(Error::EmptyTranscript)
+        ),
+        "a peer message with no commitments must hit the EmptyTranscript guard"
+    );
+}
+
+/// `from_aggregate` derives the DKG public key from the aggregate's constant
+/// term. If every transcript is empty the lengths still agree, so aggregation
+/// proceeds and the guard in `from_aggregate` is what must catch it.
+#[test]
+fn all_empty_transcripts_are_rejected_by_from_aggregate() {
+    let rng = &mut rand::rngs::StdRng::seed_from_u64(11);
+    let (_, _, mut messages) = setup(rng);
+
+    for m in messages.iter_mut() {
+        m.1.coeffs.clear();
     }
+    assert!(
+        matches!(
+            AggregatedTranscript::new(&messages),
+            Err(Error::EmptyTranscript)
+        ),
+        "uniformly empty transcripts must hit the from_aggregate guard"
+    );
 }
 
 /// A decryption share must not be produced for a ciphertext header that fails
@@ -180,7 +239,10 @@ fn out_of_range_share_index_is_rejected_at_dkg_construction() {
     let mut bad = validators.clone();
     bad[1].share_index = 99;
     assert!(
-        Dkg::new(TAU, SHARES_NUM, THRESHOLD, &bad, &bad[0]).is_err(),
+        matches!(
+            Dkg::new(TAU, SHARES_NUM, THRESHOLD, &bad, &bad[0]),
+            Err(Error::InvalidShareIndex(99))
+        ),
         "out-of-range share index must be an error, not a later panic"
     );
 }
@@ -224,17 +286,65 @@ fn truncated_aggregate_share_lookup_is_rejected() {
     inner.aggregate.shares.truncate(1);
     let tampered_bytes = bincode::serialize(&inner).unwrap();
 
-    if let Ok(tampered) = AggregatedTranscript::from_bytes(&tampered_bytes) {
-        assert!(
-            tampered
-                .create_decryption_share_simple(
-                    &dkg,
-                    &ciphertext.header().unwrap(),
-                    AAD,
-                    &keypairs[3],
-                )
-                .is_err(),
-            "out-of-range share index must be an error, not a panic"
-        );
-    }
+    let tampered = AggregatedTranscript::from_bytes(&tampered_bytes)
+        .expect("truncated aggregate should still deserialize");
+    assert!(
+        matches!(
+            tampered.create_decryption_share_simple(
+                &dkg,
+                &ciphertext.header().unwrap(),
+                AAD,
+                &keypairs[3],
+            ),
+            Err(Error::InvalidShareIndex(3))
+        ),
+        "out-of-range share index must be an error, not a panic"
+    );
+
+    // The precomputed variant removed three panics of its own and needs the
+    // same coverage.
+    assert!(
+        tampered
+            .create_decryption_share_precomputed(
+                &dkg,
+                &ciphertext.header().unwrap(),
+                AAD,
+                &keypairs[3],
+                &validators,
+            )
+            .is_err(),
+        "precomputed variant must reject an out-of-range share index"
+    );
+}
+
+/// A zero decryption key has no inverse; unblinding must return an error rather
+/// than panicking inside ferveo-tdec.
+#[test]
+fn non_invertible_decryption_key_is_rejected() {
+    let rng = &mut rand::rngs::StdRng::seed_from_u64(12);
+    let (_, validators, messages) = setup(rng);
+    let dkg = Dkg::new(TAU, SHARES_NUM, THRESHOLD, &validators, &validators[0])
+        .unwrap();
+    let aggregate = dkg.aggregate_transcripts(&messages).unwrap();
+    let ciphertext = ferveo::api::encrypt(
+        ferveo::api::SecretBox::new(b"msg".to_vec()),
+        AAD,
+        &aggregate.public_key(),
+    )
+    .unwrap();
+
+    let zero_keypair = ValidatorKeypair {
+        decryption_key: ferveo::api::Fr::from(0u64),
+    };
+    assert!(
+        aggregate
+            .create_decryption_share_simple(
+                &dkg,
+                &ciphertext.header().unwrap(),
+                AAD,
+                &zero_keypair,
+            )
+            .is_err(),
+        "a non-invertible decryption key must be an error, not a panic"
+    );
 }

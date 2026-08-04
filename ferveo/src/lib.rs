@@ -57,8 +57,8 @@ pub enum Error {
     EmptyTranscript,
 
     /// Transcripts being aggregated do not all have the same shape
-    #[error("Mismatched transcript lengths: expected {0} elements, got {1}")]
-    MismatchedTranscriptLengths(u32, u32),
+    #[error("Mismatched transcript {0}: expected {1}, got {2}")]
+    MismatchedTranscriptLengths(&'static str, u32, u32),
 
     /// The validator public key doesn't match the one in the DKG
     #[error("Validator public key mismatch")]

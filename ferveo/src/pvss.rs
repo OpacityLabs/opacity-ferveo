@@ -240,7 +240,7 @@ pub fn verify_validator_share<E: Pairing>(
     // `do_verify_full` (see `Error::InvalidTranscriptDegree`), and its
     // commitment-consistency content is structural here, because the verifier
     // derives the share commitments itself as A = FFT(F) rather than trusting
-    // dealer-supplied values. See `docs/security-notes.md`.
+    // dealer-supplied values (see `get_share_commitments_from_poly_commitments`).
     let y_i = pvss_encrypted_shares
         .get(share_index)
         .ok_or(Error::InvalidShareIndex(share_index as u32))?;
@@ -607,12 +607,14 @@ fn aggregate<E: Pairing>(
         // letting `zip_eq` panic.
         if next_pvss.coeffs.len() != coeffs.len() {
             return Err(Error::MismatchedTranscriptLengths(
+                "coefficients",
                 coeffs.len() as u32,
                 next_pvss.coeffs.len() as u32,
             ));
         }
         if next_pvss.shares.len() != shares.len() {
             return Err(Error::MismatchedTranscriptLengths(
+                "shares",
                 shares.len() as u32,
                 next_pvss.shares.len() as u32,
             ));
