@@ -7,9 +7,11 @@ use ark_poly::{
     EvaluationDomain, Polynomial,
 };
 use ferveo_common::{serialization, Keypair, PublicKey};
+#[cfg(feature = "experimental-refresh")]
+use ferveo_tdec::ShareCommitment;
 use ferveo_tdec::{
     BlindedKeyShare, CiphertextHeader, DecryptionSharePrecomputed,
-    DecryptionShareSimple, DomainPoint, ShareCommitment,
+    DecryptionShareSimple, DomainPoint,
 };
 use itertools::Itertools;
 use rand::RngCore;
@@ -20,9 +22,10 @@ use zeroize::{self, Zeroize, ZeroizeOnDrop};
 
 use crate::{
     assert_no_share_duplicates, batch_to_projective_g1, batch_to_projective_g2,
-    Error, HandoverTranscript, PubliclyVerifiableDkg, Result,
-    UpdatableBlindedKeyShare, UpdateTranscript, Validator,
+    Error, PubliclyVerifiableDkg, Result, Validator,
 };
+#[cfg(feature = "experimental-refresh")]
+use crate::{HandoverTranscript, UpdatableBlindedKeyShare, UpdateTranscript};
 
 /// Marker struct for unaggregated PVSS transcripts
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -393,6 +396,7 @@ impl<E: Pairing, T: Aggregate> PubliclyVerifiableSS<E, T> {
             .unwrap())
     }
 
+    #[cfg(feature = "experimental-refresh")]
     pub fn refresh(
         &self,
         update_transcripts: &HashMap<u32, UpdateTranscript<E>>,
@@ -437,7 +441,10 @@ impl<E: Pairing, T: Aggregate> PubliclyVerifiableSS<E, T> {
             .collect();
 
         let refreshed_aggregate_transcript = Self {
-            coeffs: self.coeffs.clone(), // FIXME: coeffs need to be updated too - #200
+            // KNOWN GAP (experimental, was #200): coeffs are not updated to
+            // match the refreshed shares, so the result does not pass
+            // verify_full. See the `refresh` module docs.
+            coeffs: self.coeffs.clone(),
             shares: updated_blinded_shares,
             sigma: self.sigma,
             phantom: Default::default(),
@@ -445,6 +452,7 @@ impl<E: Pairing, T: Aggregate> PubliclyVerifiableSS<E, T> {
         Ok(refreshed_aggregate_transcript)
     }
 
+    #[cfg(feature = "experimental-refresh")]
     pub fn finalize_handover(
         &self,
         handover_transcript: &HandoverTranscript<E>,

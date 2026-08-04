@@ -20,16 +20,16 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_with::serde_as;
 
 pub use crate::EthereumAddress;
-use crate::{
-    do_verify_aggregation, Error, PubliclyVerifiableSS, Result,
-    UpdateTranscript,
-};
+#[cfg(feature = "experimental-refresh")]
+use crate::UpdateTranscript;
+use crate::{do_verify_aggregation, Error, PubliclyVerifiableSS, Result};
 
 pub type ValidatorPublicKey = ferveo_common::PublicKey<E>;
 pub type ValidatorKeypair = ferveo_common::Keypair<E>;
 pub type Validator = crate::Validator<E>;
 pub type Transcript = PubliclyVerifiableSS<E>;
-pub type RefreshTranscript = UpdateTranscript<E>; // TODO: Consider renaming to UpdateTranscript when dealing with #193
+#[cfg(feature = "experimental-refresh")]
+pub type RefreshTranscript = UpdateTranscript<E>;
 pub type ValidatorMessage = (Validator, Transcript);
 
 // Normally, we would use a custom trait for this, but we can't because
@@ -207,6 +207,7 @@ impl Dkg {
             .map(AggregatedTranscript)
     }
 
+    #[cfg(feature = "experimental-refresh")]
     pub fn generate_refresh_transcript<R: RngCore>(
         &self,
         rng: &mut R,
@@ -214,6 +215,7 @@ impl Dkg {
         self.0.generate_refresh_transcript(rng)
     }
 
+    #[cfg(feature = "experimental-refresh")]
     pub fn generate_handover_transcript<R: RngCore>(
         &self,
         aggregate: &AggregatedTranscript,
@@ -243,6 +245,7 @@ impl Dkg {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AggregatedTranscript(crate::AggregatedTranscript<E>);
 
+#[cfg(feature = "experimental-refresh")]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HandoverTranscript(crate::HandoverTranscript<E>);
 
@@ -347,6 +350,7 @@ impl AggregatedTranscript {
         DkgPublicKey(self.0.public_key)
     }
 
+    #[cfg(feature = "experimental-refresh")]
     pub fn refresh(
         &self,
         update_transcripts: &HashMap<u32, RefreshTranscript>,
@@ -364,6 +368,7 @@ impl AggregatedTranscript {
         Ok(AggregatedTranscript(eeww))
     }
 
+    #[cfg(feature = "experimental-refresh")]
     pub fn finalize_handover(
         &self,
         handover_transcript: &HandoverTranscript,
@@ -408,7 +413,9 @@ mod test_ferveo_api {
 
     use ark_std::{iterable::Iterable, UniformRand};
     use ferveo_tdec::SecretBox;
-    use itertools::{izip, Itertools};
+    use itertools::izip;
+    #[cfg(feature = "experimental-refresh")]
+    use itertools::Itertools;
     use rand::{
         prelude::{SliceRandom, StdRng},
         SeedableRng,
@@ -861,6 +868,7 @@ mod test_ferveo_api {
     }
 
     // TODO: validators_num #197
+    #[cfg(feature = "experimental-refresh")]
     fn make_share_update_test_inputs(
         shares_num: u32,
         validators_num: u32,
@@ -931,200 +939,11 @@ mod test_ferveo_api {
         )
     }
 
-    // FIXME: This test is currently broken, and adjusted to allow compilation
-    // Also, see test cases in other tests that include threshold as a parameter
-    #[ignore = "Re-introduce recovery tests - #193"]
-    #[test_case(4, 4, true; "number of shares (validators) is a power of 2")]
-    #[test_case(7, 7, true; "number of shares (validators) is not a power of 2")]
-    #[test_case(4, 6, true; "number of validators greater than the number of shares")]
-    #[test_case(4, 6, false; "recovery at a specific point")]
-    fn test_dkg_simple_tdec_share_recovery(
-        shares_num: u32,
-        validators_num: u32,
-        _recover_at_random_point: bool,
-    ) {
-        let rng = &mut StdRng::seed_from_u64(0);
-        let security_threshold = shares_num / 2 + 1;
-        let (
-            mut messages,
-            mut validators,
-            mut validator_keypairs,
-            mut dkgs,
-            ciphertext_header,
-            old_shared_secret,
-        ) = make_share_update_test_inputs(
-            shares_num,
-            validators_num,
-            rng,
-            security_threshold,
-        );
-
-        // We assume that all participants have the same aggregate, and that participants created
-        // their own aggregates before the off-boarding of the validator
-        // If we didn't create this aggregate here, we risk having a "dangling validator message"
-        // later when we off-board the validator
-        let aggregated_transcript = dkgs[0]
-            .clone()
-            .aggregate_transcripts(messages.as_slice())
-            .unwrap();
-        assert!(aggregated_transcript
-            .verify(validators_num, messages.as_slice())
-            .unwrap());
-
-        // We need to save this domain point to be user in the recovery testing scenario
-        let mut domain_points = dkgs[0].0.domain_point_map();
-        let _removed_domain_point = domain_points
-            .remove(&validators.last().unwrap().share_index)
-            .unwrap();
-
-        // Remove one participant from the contexts and all nested structure
-        // to simulate off-boarding a validator
-        messages.pop().unwrap();
-        dkgs.pop();
-        validator_keypairs.pop().unwrap();
-        let _removed_validator = validators.pop().unwrap();
-
-        // Now, we're going to recover a new share at a random point or at a specific point
-        // and check that the shared secret is still the same.
-        // let _x_r = if recover_at_random_point {
-        //     // Onboarding a validator with a completely new private key share
-        //     DomainPoint<E>::rand(rng)
-        // } else {
-        //     // Onboarding a validator with a private key share recovered from the removed validator
-        //     removed_domain_point
-        // };
-
-        // Each participant prepares an update for each other participant
-        // let share_updates = dkgs
-        //     .iter()
-        //     .map(|validator_dkg| {
-        //         let share_update =
-        //             ShareRecoveryUpdate::create_recovery_updates(
-        //                 validator_dkg,
-        //                 &x_r,
-        //             )
-        //             .unwrap();
-        //         (validator_dkg.me().address.clone(), share_update)
-        //     })
-        //     .collect::<HashMap<_, _>>();
-
-        // Participants share updates and update their shares
-
-        // Now, every participant separately:
-        // let updated_shares: HashMap<u32, _> = dkgs
-        //     .iter()
-        //     .map(|validator_dkg| {
-        //         // Current participant receives updates from other participants
-        //         let updates_for_participant: Vec<_> = share_updates
-        //             .values()
-        //             .map(|updates| {
-        //                 updates.get(&validator_dkg.me().share_index).unwrap()
-        //             })
-        //             .cloned()
-        //             .collect();
-
-        //         // Each validator uses their decryption key to update their share
-        //         let validator_keypair = validator_keypairs
-        //             .get(validator_dkg.me().share_index as usize)
-        //             .unwrap();
-
-        //         // And creates updated private key shares
-        //         let updated_key_share = aggregated_transcript
-        //             .get_private_key_share(
-        //                 validator_keypair,
-        //                 validator_dkg.me().share_index,
-        //             )
-        //             .unwrap()
-        //             .create_updated_private_key_share_for_recovery(
-        //                 &updates_for_participant,
-        //             )
-        //             .unwrap();
-        //         (validator_dkg.me().share_index, updated_key_share)
-        //     })
-        //     .collect();
-
-        // Now, we have to combine new share fragments into a new share
-        // let recovered_key_share =
-        // PrivateKeyShare::recover_share_from_updated_private_shares(
-        //     &x_r,
-        //     &domain_points,
-        //     &updated_shares,
-        // )
-        // .unwrap();
-
-        // Get decryption shares from remaining participants
-        let mut decryption_shares: Vec<DecryptionShareSimple> =
-            validator_keypairs
-                .iter()
-                .zip_eq(dkgs.iter())
-                .map(|(validator_keypair, validator_dkg)| {
-                    aggregated_transcript
-                        .create_decryption_share_simple(
-                            validator_dkg,
-                            &ciphertext_header,
-                            AAD,
-                            validator_keypair,
-                        )
-                        .unwrap()
-                })
-                .collect();
-        decryption_shares.shuffle(rng);
-
-        // In order to test the recovery, we need to create a new decryption share from the recovered
-        // private key share. To do that, we need a new validator
-
-        // Let's create and onboard a new validator
-        // TODO: Add test scenarios for onboarding and offboarding validators
-        // let new_validator_keypair = Keypair::random();
-        // Normally, we would get these from the Coordinator:
-        // let new_validator_share_index = removed_validator.share_index;
-        // let new_validator = Validator {
-        //     address: gen_address(new_validator_share_index as usize),
-        //     public_key: new_validator_keypair.public_key(),
-        //     share_index: new_validator_share_index,
-        // };
-        // validators.push(new_validator.clone());
-        // let new_validator_dkg = Dkg::new(
-        //     TAU,
-        //     shares_num,
-        //     security_threshold,
-        //     &validators,
-        //     &new_validator,
-        // )
-        // .unwrap();
-
-        // let new_decryption_share = recovered_key_share
-        //     .create_decryption_share_simple(
-        //         &new_validator_dkg,
-        //         &ciphertext_header,
-        //         &new_validator_keypair,
-        //         AAD,
-        //     )
-        //     .unwrap();
-        // decryption_shares.push(new_decryption_share);
-        // domain_points.insert(new_validator_share_index, x_r);
-
-        let domain_points = domain_points
-            .values()
-            .take(security_threshold as usize)
-            .cloned()
-            .collect::<Vec<_>>();
-        let decryption_shares =
-            &decryption_shares[..security_threshold as usize];
-        assert_eq!(domain_points.len(), security_threshold as usize);
-        assert_eq!(decryption_shares.len(), security_threshold as usize);
-
-        let new_shared_secret = combine_shares_simple(decryption_shares);
-        assert_ne!(
-            old_shared_secret, new_shared_secret,
-            "Shared secret reconstruction failed"
-        );
-    }
-
     #[test_case(4, 3; "N is a power of 2, t is 1 + 50%")]
     #[test_case(4, 4; "N is a power of 2, t=N")]
     #[test_case(30, 16; "N is not a power of 2, t is 1 + 50%")]
     #[test_case(30, 30; "N is not a power of 2, t=N")]
+    #[cfg(feature = "experimental-refresh")]
     fn test_dkg_api_simple_tdec_share_refresh(
         shares_num: u32,
         security_threshold: u32,
