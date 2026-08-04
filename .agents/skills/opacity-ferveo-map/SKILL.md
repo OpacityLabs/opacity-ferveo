@@ -36,6 +36,12 @@ Each validator: `Dkg::new(tau, shares_num, threshold, validators, me)` →
 `create_decryption_share_simple` (or `_precomputed`); client
 `combine_shares_simple` → `decrypt_with_shared_secret`.
 
+**Deployment note:** the above is the library's *per-validator* protocol.
+opacity-stack runs it **single-dealer** — the director performs every "each
+validator" step itself (generating all transcripts) and aggregates them, rather
+than validators dealing independently. This distinction is load-bearing for the
+σ / proof-of-knowledge argument; see `docs/security-notes.md`.
+
 ### Decryption shares: implementation deviates from the paper
 
 `ferveo-tdec` intentionally deviates from §4.4 of the Ferveo paper (eprint
