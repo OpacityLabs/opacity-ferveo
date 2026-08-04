@@ -47,6 +47,11 @@ pub enum Error {
     #[error("Transcript aggregate doesn't match the received PVSS instances")]
     InvalidTranscriptAggregate,
 
+    /// A transcript or aggregate commits to a polynomial of the wrong degree
+    /// for the security threshold (expected `threshold` coefficients)
+    #[error("Invalid transcript degree: expected {0} coefficients (security threshold), got {1}")]
+    InvalidTranscriptDegree(u32, u32),
+
     /// The validator public key doesn't match the one in the DKG
     #[error("Validator public key mismatch")]
     ValidatorPublicKeyMismatch,

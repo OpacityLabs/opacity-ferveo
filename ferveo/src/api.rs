@@ -263,6 +263,7 @@ impl AggregatedTranscript {
     pub fn verify(
         &self,
         validators_num: u32,
+        security_threshold: u32,
         messages: &[ValidatorMessage],
     ) -> Result<bool> {
         if validators_num < messages.len() as u32 {
@@ -297,6 +298,7 @@ impl AggregatedTranscript {
             &validators,
             &domain,
             &pvss_list,
+            security_threshold,
         )
     }
 
@@ -510,7 +512,9 @@ mod test_ferveo_api {
             Dkg::new(TAU, shares_num, security_threshold, &validators, &me)
                 .unwrap();
         let local_aggregate = dkg.aggregate_transcripts(messages).unwrap();
-        assert!(local_aggregate.verify(validators_num, messages).unwrap());
+        assert!(local_aggregate
+            .verify(validators_num, security_threshold, messages)
+            .unwrap());
 
         // At this point, any given validator should be able to provide a DKG public key
         let dkg_public_key = local_aggregate.public_key();
@@ -547,7 +551,7 @@ mod test_ferveo_api {
                 let server_aggregate =
                     dkg.aggregate_transcripts(messages).unwrap();
                 assert!(server_aggregate
-                    .verify(validators_num, messages)
+                    .verify(validators_num, security_threshold, messages)
                     .unwrap());
 
                 // And then each validator creates their own decryption share
@@ -613,7 +617,9 @@ mod test_ferveo_api {
         // Now that every validator holds a dkg instance and a transcript for every other validator,
         // every validator can aggregate the transcripts
         let local_aggregate = AggregatedTranscript::new(messages).unwrap();
-        assert!(local_aggregate.verify(validators_num, messages).unwrap());
+        assert!(local_aggregate
+            .verify(validators_num, security_threshold, messages)
+            .unwrap());
 
         // At this point, any given validator should be able to provide a DKG public key
         let public_key = local_aggregate.public_key();
@@ -638,7 +644,7 @@ mod test_ferveo_api {
                     let server_aggregate =
                         dkg.aggregate_transcripts(messages).unwrap();
                     assert!(server_aggregate
-                        .verify(validators_num, messages)
+                        .verify(validators_num, security_threshold, messages)
                         .unwrap());
                     server_aggregate
                         .create_decryption_share_simple(
@@ -706,7 +712,9 @@ mod test_ferveo_api {
             Dkg::new(TAU, shares_num, security_threshold, &validators, &me)
                 .unwrap();
         let good_aggregate = dkg.aggregate_transcripts(messages).unwrap();
-        assert!(good_aggregate.verify(validators_num, messages).is_ok());
+        assert!(good_aggregate
+            .verify(validators_num, security_threshold, messages)
+            .is_ok());
 
         // Test negative cases
 
@@ -715,7 +723,11 @@ mod test_ferveo_api {
 
         // Should fail if the number of validators is less than the number of messages
         assert!(matches!(
-            good_aggregate.verify(messages.len() as u32 - 1, messages),
+            good_aggregate.verify(
+                messages.len() as u32 - 1,
+                security_threshold,
+                messages
+            ),
             Err(Error::InvalidAggregateVerificationParameters(_, _))
         ));
 
@@ -737,7 +749,11 @@ mod test_ferveo_api {
         let insufficient_aggregate =
             dkg.aggregate_transcripts(not_enough_messages).unwrap();
         assert!(matches!(
-            insufficient_aggregate.verify(validators_num, messages),
+            insufficient_aggregate.verify(
+                validators_num,
+                security_threshold,
+                messages
+            ),
             Err(Error::InvalidTranscriptAggregate)
         ));
 
@@ -788,7 +804,7 @@ mod test_ferveo_api {
         assert_eq!(mixed_messages.len(), security_threshold as usize);
         let bad_aggregate = dkg.aggregate_transcripts(&mixed_messages).unwrap();
         assert!(matches!(
-            bad_aggregate.verify(validators_num, messages),
+            bad_aggregate.verify(validators_num, security_threshold, messages),
             Err(Error::InvalidTranscriptAggregate)
         ));
     }
@@ -821,7 +837,8 @@ mod test_ferveo_api {
         // the aggregate from a side-channel or decide to persist it and verify it later
 
         // Now, the client can verify the aggregated transcript
-        let result = good_aggregate.verify(validators_num, messages);
+        let result =
+            good_aggregate.verify(validators_num, security_threshold, messages);
         assert!(result.is_ok());
         assert!(result.unwrap());
 
@@ -829,7 +846,11 @@ mod test_ferveo_api {
 
         // Should fail if the number of validators is less than the number of messages
         assert!(matches!(
-            good_aggregate.verify(messages.len() as u32 - 1, messages),
+            good_aggregate.verify(
+                messages.len() as u32 - 1,
+                security_threshold,
+                messages
+            ),
             Err(Error::InvalidAggregateVerificationParameters(_, _))
         ));
 
@@ -844,9 +865,17 @@ mod test_ferveo_api {
         assert!(not_enough_messages.len() < security_threshold as usize);
         let insufficient_aggregate =
             AggregatedTranscript::new(not_enough_messages).unwrap();
-        let _result = insufficient_aggregate.verify(validators_num, messages);
+        let _result = insufficient_aggregate.verify(
+            validators_num,
+            security_threshold,
+            messages,
+        );
         assert!(matches!(
-            insufficient_aggregate.verify(validators_num, messages),
+            insufficient_aggregate.verify(
+                validators_num,
+                security_threshold,
+                messages
+            ),
             Err(Error::InvalidTranscriptAggregate)
         ));
 
@@ -862,7 +891,7 @@ mod test_ferveo_api {
         let mixed_messages = [&messages[..2], &bad_messages[..1]].concat();
         let bad_aggregate = AggregatedTranscript::new(&mixed_messages).unwrap();
         assert!(matches!(
-            bad_aggregate.verify(validators_num, messages),
+            bad_aggregate.verify(validators_num, security_threshold, messages),
             Err(Error::InvalidTranscriptAggregate)
         ));
     }
@@ -908,7 +937,7 @@ mod test_ferveo_api {
         let server_aggregate =
             dkg.aggregate_transcripts(messages.as_slice()).unwrap();
         assert!(server_aggregate
-            .verify(validators_num, messages.as_slice())
+            .verify(validators_num, security_threshold, messages.as_slice())
             .unwrap());
 
         // Create an initial shared secret for testing purposes
@@ -1001,7 +1030,11 @@ mod test_ferveo_api {
                     .aggregate_transcripts(messages.as_slice())
                     .unwrap();
                 assert!(aggregate
-                    .verify(validators_num, messages.as_slice())
+                    .verify(
+                        validators_num,
+                        security_threshold,
+                        messages.as_slice()
+                    )
                     .unwrap());
 
                 // Each participant updates their own DKG aggregate

@@ -120,7 +120,7 @@ fn old_artifacts_roundtrip_and_decrypt() {
         .aggregate_transcripts(&messages)
         .expect("aggregation of old transcripts failed");
     assert!(
-        agg.verify(SHARES_NUM, &messages).unwrap(),
+        agg.verify(SHARES_NUM, THRESHOLD, &messages).unwrap(),
         "old transcripts no longer verify"
     );
     assert_eq!(

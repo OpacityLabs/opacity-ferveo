@@ -203,7 +203,13 @@ impl<E: Pairing, T> PubliclyVerifiableSS<E, T> {
     /// function may also be used for that purpose.
     pub fn verify_full(&self, dkg: &PubliclyVerifiableDkg<E>) -> Result<bool> {
         let validators = dkg.validators.values().cloned().collect::<Vec<_>>();
-        do_verify_full(&self.coeffs, &self.shares, &validators, &dkg.domain)
+        do_verify_full(
+            &self.coeffs,
+            &self.shares,
+            &validators,
+            &dkg.domain,
+            dkg.dkg_params.security_threshold(),
+        )
     }
 }
 
@@ -249,8 +255,24 @@ pub fn do_verify_full<E: Pairing>(
     pvss_encrypted_shares: &[E::G2Affine],
     validators: &[Validator<E>],
     domain: &ark_poly::GeneralEvaluationDomain<E::ScalarField>,
+    security_threshold: u32,
 ) -> Result<bool> {
     assert_no_share_duplicates(validators)?;
+
+    // Degree bound (the length content of whitepaper check #3, §4.2.3): the
+    // committed polynomial must have exactly `security_threshold` coefficients,
+    // i.e. degree `threshold - 1`. The pairing checks below only prove the
+    // shares lie on *some* polynomial committed by `pvss_coefficients` (since
+    // the share commitments are derived as A = FFT(coeffs)); they do not pin
+    // its degree. Without this bound a crafted coefficient count still verifies
+    // while changing the effective threshold: too many coefficients make the
+    // aggregate undecryptable at threshold, too few silently lower it.
+    if pvss_coefficients.len() != security_threshold as usize {
+        return Err(Error::InvalidTranscriptDegree(
+            security_threshold,
+            pvss_coefficients.len() as u32,
+        ));
+    }
 
     let share_commitments = get_share_commitments_from_poly_commitments::<E>(
         pvss_coefficients,
@@ -279,12 +301,14 @@ pub fn do_verify_aggregation<E: Pairing>(
     validators: &[Validator<E>],
     domain: &ark_poly::GeneralEvaluationDomain<E::ScalarField>,
     pvss: &[PubliclyVerifiableSS<E>],
+    security_threshold: u32,
 ) -> Result<bool> {
     let is_valid = do_verify_full(
         pvss_agg_coefficients,
         pvss_agg_encrypted_shares,
         validators,
         domain,
+        security_threshold,
     )?;
     if !is_valid {
         return Err(Error::InvalidTranscriptAggregate);
@@ -319,6 +343,7 @@ impl<E: Pairing, T: Aggregate> PubliclyVerifiableSS<E, T> {
             &validators,
             &dkg.domain,
             pvss,
+            dkg.dkg_params.security_threshold(),
         )
     }
 
@@ -689,6 +714,46 @@ mod test_pvss {
         assert!(bad_pvss.verify_optimistic());
         // Full verification should catch this issue
         assert!(!bad_pvss.verify_full(&dkg).unwrap());
+    }
+
+    /// A transcript committing to a polynomial of the wrong degree (coefficient
+    /// count != security threshold) must be rejected by full verification.
+    /// This is the length content of whitepaper check #3, §4.2.3: the
+    /// optimistic (sigma) check does not pin the degree, so without this bound
+    /// a crafted coefficient count would verify while changing the effective
+    /// threshold.
+    #[test]
+    fn test_verify_pvss_wrong_degree() {
+        let rng = &mut ark_std::test_rng();
+        let (dkg, _) = setup_dkg(0);
+        let s = ScalarField::rand(rng);
+        let pvss =
+            PubliclyVerifiableSS::<EllipticCurve>::new(&s, &dkg, rng).unwrap();
+        let threshold = dkg.dkg_params.security_threshold() as usize;
+        assert_eq!(pvss.coeffs.len(), threshold);
+        assert!(pvss.verify_full(&dkg).unwrap());
+
+        // Too few coefficients (degree below threshold - 1) would lower the
+        // effective threshold. The optimistic check still passes.
+        let mut short = pvss.clone();
+        short.coeffs.pop();
+        assert!(short.verify_optimistic());
+        assert!(matches!(
+            short.verify_full(&dkg),
+            Err(crate::Error::InvalidTranscriptDegree(t, got))
+                if t as usize == threshold && got as usize == threshold - 1
+        ));
+
+        // Too many coefficients (degree above threshold - 1) would make the
+        // aggregate undecryptable at threshold.
+        let mut long = pvss;
+        long.coeffs.push(long.coeffs[0]);
+        assert!(long.verify_optimistic());
+        assert!(matches!(
+            long.verify_full(&dkg),
+            Err(crate::Error::InvalidTranscriptDegree(t, got))
+                if t as usize == threshold && got as usize == threshold + 1
+        ));
     }
 
     /// Check that happy flow of aggregating PVSS transcripts
