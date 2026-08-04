@@ -51,7 +51,7 @@ pub fn inverse_mod_xl<F: FftField>(
         // Use Newton iteration which converges to the inverse mod x^l
         for _ in 0..log {
             func_inv =
-                &(&func_inv + &func_inv) - &(func * &(&func_inv * &func_inv)); //TODO: is func_inv*2 better than func_inv+func_inv?
+                &(&func_inv + &func_inv) - &(func * &(&func_inv * &func_inv));
             func_inv.coeffs.resize(
                 ark_std::cmp::min(func_inv.coeffs.len(), acc),
                 F::zero(),
