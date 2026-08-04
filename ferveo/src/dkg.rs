@@ -93,6 +93,18 @@ impl<E: Pairing> PubliclyVerifiableDkg<E> {
     ) -> Result<Self> {
         assert_no_share_duplicates(validators)?;
 
+        // Share indices address the evaluation domain positionally: domain
+        // points and the domain-point map are built as 0..validators.len().
+        // Combined with the duplicate check above, requiring every index to be
+        // in range makes the set exactly {0, ..., n-1} (any permutation), which
+        // is what the rest of the protocol assumes. Without this, an
+        // out-of-range index panics later while indexing evaluations.
+        for validator in validators {
+            if validator.share_index as usize >= validators.len() {
+                return Err(Error::InvalidShareIndex(validator.share_index));
+            }
+        }
+
         let domain = ark_poly::GeneralEvaluationDomain::<E::ScalarField>::new(
             validators.len(),
         )

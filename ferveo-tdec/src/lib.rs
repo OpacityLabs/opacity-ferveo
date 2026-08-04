@@ -37,6 +37,14 @@ pub enum Error {
     #[error("Symmetric encryption failed")]
     SymmetricEncryptionError(chacha20poly1305::aead::Error),
 
+    /// Failed to access a share for a given share index
+    #[error("Invalid share index: {0}")]
+    InvalidShareIndex(u32),
+
+    /// A validator decryption key must be invertible (i.e. nonzero)
+    #[error("Invalid validator decryption key")]
+    InvalidValidatorDecryptionKey,
+
     #[error(transparent)]
     BincodeError(#[from] bincode::Error),
 

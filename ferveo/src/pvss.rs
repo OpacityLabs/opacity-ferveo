@@ -181,10 +181,16 @@ impl<E: Pairing, T> PubliclyVerifiableSS<E, T> {
     /// This is the sole verifier of the proof-of-knowledge `sigma`; its
     /// soundness rests on an AGM/KOE assumption. See `docs/security-notes.md`.
     pub fn verify_optimistic(&self) -> bool {
+        // A transcript with no commitments carries no F_0 to check the proof of
+        // knowledge against, so it cannot be valid. Deserialized transcripts are
+        // peer-supplied, so this must not index blindly.
+        let Some(f_0) = self.coeffs.first() else {
+            return false;
+        };
         // We're only checking the proof of knowledge here, sigma ?= h^s
         // "Does the first coefficient of the secret polynomial match the proof of knowledge?"
         E::pairing(
-            self.coeffs[0].into_group(), // F_0 = g^s
+            f_0.into_group(), // F_0 = g^s
             E::G2::generator(),
         ) == E::pairing(
             E::G1::generator(),
@@ -316,11 +322,17 @@ pub fn do_verify_aggregation<E: Pairing>(
         return Err(Error::InvalidTranscriptAggregate);
     }
 
-    // Now, we verify that the aggregated PVSS transcript is a valid aggregation
-    let y = pvss
-        .iter()
-        .fold(E::G1::zero(), |acc, pvss| acc + pvss.coeffs[0].into_group());
-    if y.into_affine() == pvss_agg_coefficients[0] {
+    // Now, we verify that the aggregated PVSS transcript is a valid aggregation.
+    // Both the individual transcripts and the aggregate are peer-supplied, so
+    // neither constant term may be indexed blindly.
+    let y = pvss.iter().try_fold(E::G1::zero(), |acc, pvss| {
+        let f_0 = pvss.coeffs.first().ok_or(Error::EmptyTranscript)?;
+        Ok::<_, Error>(acc + f_0.into_group())
+    })?;
+    let agg_f_0 = pvss_agg_coefficients
+        .first()
+        .ok_or(Error::EmptyTranscript)?;
+    if y.into_affine() == *agg_f_0 {
         Ok(true)
     } else {
         Err(Error::InvalidTranscriptAggregate)
@@ -354,15 +366,14 @@ impl<E: Pairing, T: Aggregate> PubliclyVerifiableSS<E, T> {
         share_index: u32,
         public_key: &PublicKey<E>,
     ) -> Result<BlindedKeyShare<E>> {
-        let blinded_key_share = self
+        let blinded_key_share = *self
             .shares
             .get(share_index as usize)
-            .ok_or(Error::InvalidShareIndex(share_index));
-        let blinded_key_share = BlindedKeyShare {
+            .ok_or(Error::InvalidShareIndex(share_index))?;
+        Ok(BlindedKeyShare {
             validator_public_key: public_key.encryption_key,
-            blinded_key_share: *blinded_key_share.unwrap(),
-        };
-        Ok(blinded_key_share)
+            blinded_key_share,
+        })
     }
 
     pub fn get_share_for_validator(
@@ -387,14 +398,13 @@ impl<E: Pairing, T: Aggregate> PubliclyVerifiableSS<E, T> {
             .get_share_for_index_and_pubkey(
                 share_index,
                 &validator_keypair.public_key(),
-            )
-            .unwrap()
+            )?
             .create_decryption_share_simple(
                 ciphertext_header,
                 aad,
                 validator_keypair,
-            );
-        Ok(decryption_share.unwrap())
+            )?;
+        Ok(decryption_share)
     }
 
     /// Make a decryption share (precomputed variant) for a given ciphertext
@@ -406,21 +416,17 @@ impl<E: Pairing, T: Aggregate> PubliclyVerifiableSS<E, T> {
         share_index: u32,
         domain_points: &HashMap<u32, DomainPoint<E>>,
     ) -> Result<DecryptionSharePrecomputed<E>> {
-        let share = self
-            .get_share_for_index_and_pubkey(
-                share_index,
-                &validator_keypair.public_key(),
-            )
-            .unwrap();
-        Ok(share
-            .create_decryption_share_precomputed(
-                ciphertext_header,
-                aad,
-                validator_keypair,
-                share_index,
-                domain_points,
-            )
-            .unwrap())
+        let share = self.get_share_for_index_and_pubkey(
+            share_index,
+            &validator_keypair.public_key(),
+        )?;
+        Ok(share.create_decryption_share_precomputed(
+            ciphertext_header,
+            aad,
+            validator_keypair,
+            share_index,
+            domain_points,
+        )?)
     }
 
     #[cfg(feature = "experimental-refresh")]
@@ -570,7 +576,9 @@ impl<E: Pairing> AggregatedTranscript<E> {
     pub fn from_aggregate(
         aggregate: PubliclyVerifiableSS<E, Aggregated>,
     ) -> Result<Self> {
-        let public_key = ferveo_tdec::DkgPublicKey::<E>(aggregate.coeffs[0]);
+        let public_key = ferveo_tdec::DkgPublicKey::<E>(
+            *aggregate.coeffs.first().ok_or(Error::EmptyTranscript)?,
+        );
         Ok(AggregatedTranscript {
             aggregate,
             public_key,
@@ -595,6 +603,20 @@ fn aggregate<E: Pairing>(
     // sigma is the sum of all the sigma_i, which is the proof of knowledge of the secret polynomial
     // Aggregating is just adding the corresponding values in PVSS instances, so PVSS = PVSS + PVSS_i
     for next_pvss in pvss_iter {
+        // Transcripts are peer-supplied: reject a shape mismatch instead of
+        // letting `zip_eq` panic.
+        if next_pvss.coeffs.len() != coeffs.len() {
+            return Err(Error::MismatchedTranscriptLengths(
+                coeffs.len() as u32,
+                next_pvss.coeffs.len() as u32,
+            ));
+        }
+        if next_pvss.shares.len() != shares.len() {
+            return Err(Error::MismatchedTranscriptLengths(
+                shares.len() as u32,
+                next_pvss.shares.len() as u32,
+            ));
+        }
         sigma = (sigma + next_pvss.sigma).into();
         coeffs
             .iter_mut()

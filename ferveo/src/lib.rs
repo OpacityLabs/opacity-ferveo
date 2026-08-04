@@ -52,6 +52,14 @@ pub enum Error {
     #[error("Invalid transcript degree: expected {0} coefficients (security threshold), got {1}")]
     InvalidTranscriptDegree(u32, u32),
 
+    /// A transcript or aggregate carries no polynomial commitments at all
+    #[error("Transcript carries no polynomial commitments")]
+    EmptyTranscript,
+
+    /// Transcripts being aggregated do not all have the same shape
+    #[error("Mismatched transcript lengths: expected {0} elements, got {1}")]
+    MismatchedTranscriptLengths(u32, u32),
+
     /// The validator public key doesn't match the one in the DKG
     #[error("Validator public key mismatch")]
     ValidatorPublicKeyMismatch,

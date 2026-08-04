@@ -8,7 +8,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_with::serde_as;
 
 use crate::{
-    Ciphertext, CiphertextHeader, PrivateKeyShare,
+    Ciphertext, CiphertextHeader, Error, PrivateKeyShare,
     PublicDecryptionContextSimple, Result,
 };
 
@@ -30,7 +30,7 @@ impl<E: Pairing> ValidatorShareChecksum<E> {
             .mul(
                 validator_decryption_key
                     .inverse()
-                    .expect("Inverse of this key doesn't exist"),
+                    .ok_or(Error::InvalidValidatorDecryptionKey)?,
             )
             .into_affine();
         Ok(Self { checksum })

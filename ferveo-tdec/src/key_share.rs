@@ -9,7 +9,7 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::{
     prepare_combine_simple, CiphertextHeader, DecryptionSharePrecomputed,
-    DecryptionShareSimple, DomainPoint, Result,
+    DecryptionShareSimple, DomainPoint, Error, Result,
 };
 
 #[serde_as]
@@ -38,7 +38,7 @@ impl<E: Pairing> BlindedKeyShare<E> {
         let unblinding_factor = validator_keypair
             .decryption_key
             .inverse()
-            .expect("Validator decryption key must have an inverse");
+            .ok_or(Error::InvalidValidatorDecryptionKey)?;
         Ok(PrivateKeyShare::<E>(
             self.blinded_key_share.mul(unblinding_factor).into_affine(),
         ))
@@ -96,16 +96,19 @@ impl<E: Pairing> BlindedKeyShare<E> {
                 (*share_index, adjusted_share_index)
             })
             .collect::<HashMap<u32, usize>>();
-        let adjusted_share_index =
-            *sorted_share_indices.get(&share_index).unwrap();
+        let adjusted_share_index = *sorted_share_indices
+            .get(&share_index)
+            .ok_or(Error::InvalidShareIndex(share_index))?;
 
-        // Finally, pick the lagrange coefficient for the current share index
+        // Finally, pick the lagrange coefficient for the current share index.
+        // The index came from `enumerate` over a vector of the same length, so
+        // it is in bounds by construction.
         let lagrange_coeff = &lagrange_coeffs[adjusted_share_index];
-        let private_key_share = self.unblind(validator_keypair);
+        let private_key_share = self.unblind(validator_keypair)?;
         DecryptionSharePrecomputed::create(
             share_index as usize,
             &validator_keypair.decryption_key,
-            &private_key_share.unwrap(),
+            &private_key_share,
             ciphertext_header,
             aad,
             lagrange_coeff,
