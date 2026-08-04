@@ -117,3 +117,71 @@ unchanged `F₀`; no re-derivation is needed and none is missing.
 **Conclusion:** `σ` is consumed for verification in exactly one place
 (`verify_optimistic`). The refresh/handover copy-forward introduces no additional
 or unsound consumption of `σ`.
+
+## 2. Degenerate-input validity gaps — OPEN
+
+Two validity checks accept degenerate (all-identity) inputs that the protocol
+should arguably reject. Found by adversarial review on 2026-08-04 and
+reproduced directly against this branch. Both are recorded rather than patched:
+changing what a validity check accepts is a cryptographic decision, not a
+robustness fix, and neither is a crash or a key-recovery risk.
+
+Neither has a wire-format consequence — both fixes, if adopted, are
+verification-side only.
+
+### 2.1 An all-identity aggregate verifies against an empty message set
+
+`AggregatedTranscript::verify(validators_num, security_threshold, messages)`
+checks only an *upper* bound on the message count (`validators_num <
+messages.len()`). Nothing requires at least one message, and nothing requires
+the aggregate's constant term `F₀` to be a non-identity point.
+
+Given an aggregate with `coeffs = [𝒪; t]` (length equal to the security
+threshold, so the degree check passes), `shares = []` and `σ = 𝒪`:
+
+- `verify_optimistic` computes `e(𝒪, G₂) == e(G₁, 𝒪)`, i.e. `1 == 1` — passes.
+- `do_verify_full` iterates over an empty validator set — vacuously true.
+- The aggregation check sums an empty transcript list to `𝒪` and compares it to
+  `F₀ = 𝒪` — equal.
+
+Reproduced: `verify(4, 3, &[])` returns `Ok(true)`, and the corresponding DKG
+public key is the identity.
+
+Impact is bounded — an identity public key is not a key anyone can usefully
+encrypt to, and no secret is exposed — but any caller treating `verify() == Ok(true)`
+as "this aggregate is a real, usable DKG result" is being told something false.
+Possible fix: require `!messages.is_empty()` and reject an identity constant
+term in `verify`.
+
+### 2.2 The all-zero ciphertext header passes the §4.4.2 validity check
+
+`CiphertextHeader::check` implements the ciphertext-validity gate as
+
+```
+e(U, H_G2(U, ciphertext_hash, aad)) · e(-G, W) == 1
+```
+
+With `U = 𝒪` and `W = 𝒪` both pairings are the identity of the target group, so
+the product is `1` and the check passes **for any `aad` and any
+`ciphertext_hash`** — the gate is bypassed rather than satisfied.
+
+Reproduced: a ciphertext whose commitment and auth tag are zeroed passes
+validation under an AAD unrelated to the one it was encrypted with, and
+`create_decryption_share_simple` returns a share for it.
+
+The emitted share is itself degenerate (`D_i = e(𝒪, ·) = 1`, checksum `𝒪`), so no
+key material leaks. The concern is that the IND-CCA2 ciphertext-validity gate —
+the check that is supposed to make a decryption oracle safe — does not hold for
+this input class, and nodes can be induced to do hash-to-curve and pairing work
+and emit shares for objects that `encrypt()` could never have produced.
+Possible fix: reject identity points at the top of `check`.
+
+### Questions for review
+
+1. Is 2.2 a real weakening of the IND-CCA2 argument, or is the degenerate
+   output enough to make it harmless? Are there other degenerate points (small
+   subgroup, non-canonical encodings) the check should exclude?
+2. For 2.1, should verification enforce a minimum message count and a
+   non-identity public key, or is that properly the caller's responsibility?
+3. Do arkworks' deserialization paths already guarantee subgroup membership for
+   the points involved, or is an explicit check needed alongside these?
