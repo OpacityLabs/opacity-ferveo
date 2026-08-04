@@ -49,7 +49,7 @@ impl<E: Pairing> ValidatorShareChecksum<E> {
             return false;
         }
 
-        // TODO: use multipairing here (h_inv) - Issue #192
+        // TODO: use multipairing here (h_inv)
         // e(C_i, ek_i) == e(U, H)
         if E::pairing(self.checksum, *validator_public_key)
             != E::pairing(ciphertext.commitment, E::G2::generator())

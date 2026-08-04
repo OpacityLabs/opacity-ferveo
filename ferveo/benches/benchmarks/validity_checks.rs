@@ -14,8 +14,6 @@ use rand::SeedableRng;
 
 const NUM_SHARES_CASES: [usize; 5] = [4, 8, 16, 32, 64];
 
-// TODO: Can we expose ferveo test methods to reuse `setup_dkg` et al instead of reimplementing it here?
-
 fn gen_keypairs(num: u32) -> Vec<ferveo_common::Keypair<EllipticCurve>> {
     let rng = &mut ark_std::test_rng();
     (0..num)

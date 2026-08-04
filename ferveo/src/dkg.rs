@@ -71,9 +71,6 @@ pub type ValidatorsByAddress<E> = BTreeMap<EthereumAddress, Validator<E>>;
 pub type PVSSMap<E> = BTreeMap<EthereumAddress, PubliclyVerifiableSS<E>>;
 
 /// The DKG context that holds all the local state for participating in the DKG
-// TODO: Consider removing Clone to avoid accidentally NOT-mutating state.
-//  Currently, we're assuming that the DKG is only mutated by the owner of the instance.
-//  Consider removing Clone after finalizing ferveo::api
 #[derive(Clone, Debug)]
 pub struct PubliclyVerifiableDkg<E: Pairing> {
     pub dkg_params: DkgParams,
@@ -177,7 +174,6 @@ impl<E: Pairing> PubliclyVerifiableDkg<E> {
             .collect::<HashMap<u32, DomainPoint<E>>>()
     }
 
-    // TODO: Revisit naming later
     /// Return a map of domain points for the DKG
     pub fn domain_and_key_map(
         &self,
@@ -228,7 +224,7 @@ impl<E: Pairing> PubliclyVerifiableDkg<E> {
     }
 
     // Returns a new refresh transcript for current validators in DKG
-    // TODO: Allow to pass a parameter to restrict target validators - #199
+    // TODO: Allow to pass a parameter to restrict target validators
     #[cfg(feature = "experimental-refresh")]
     pub fn generate_refresh_transcript<R: RngCore>(
         &self,
@@ -364,7 +360,7 @@ mod test_dealing {
         )
         .unwrap();
 
-        // DKG should keep the original validators indices, as passed from the constructor. See issue #204
+        // DKG should keep the original validators indices, as passed from the constructor.
         for validator in validators.iter() {
             let validator_in_dkg =
                 dkg.validators.get(&validator.share_index).unwrap();

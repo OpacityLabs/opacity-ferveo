@@ -124,7 +124,7 @@ pub fn encrypt<E: Pairing>(
         aad,
     };
     let ciphertext = shared_secret_to_chacha(&shared_secret)?
-        .encrypt(&nonce.0, payload) // TODO: Consider encrypt_in_place (#196)
+        .encrypt(&nonce.0, payload) // TODO: Consider encrypt_in_place
         .map_err(Error::SymmetricEncryptionError)?
         .to_vec();
     let ciphertext_hash = sha256(&ciphertext);
@@ -134,7 +134,6 @@ pub fn encrypt<E: Pairing>(
         .mul(rand_element)
         .into();
 
-    // TODO: Consider adding aad to the Ciphertext struct
     Ok(Ciphertext::<E> {
         commitment,
         ciphertext,

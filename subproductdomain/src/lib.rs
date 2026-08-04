@@ -78,12 +78,13 @@ pub fn rev<F: FftField>(f: &mut DensePolynomial<F>, m: usize) {
 
 /// GG Algorithm 9.5
 /// Divide f by g in nearly linear time
+///
+/// Precondition: `divisor` must be monic. This is not checked; all in-repo
+/// callers construct monic divisors from subproduct trees.
 pub fn fast_divide_monic<F: FftField>(
     func: &DensePolynomial<F>,
     divisor: &DensePolynomial<F>,
 ) -> (DensePolynomial<F>, DensePolynomial<F>) {
-    //TODO: check monic condition
-
     if func.coeffs().len() < divisor.coeffs().len() {
         return (
             DensePolynomial::<F> {

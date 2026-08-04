@@ -1,7 +1,7 @@
 #![warn(rust_2018_idioms)]
 use ark_ec::pairing::Pairing;
 
-// TODO: Use explicit imports - #194
+// TODO: Use explicit imports
 pub mod ciphertext;
 pub mod combine;
 pub mod context;
@@ -9,15 +9,6 @@ pub mod decryption;
 pub mod hash_to_curve;
 pub mod key_share;
 pub mod secret_box;
-
-// TODO: Only show the public API, tpke::api
-// use ciphertext::*;
-// use combine::*;
-// use context::*;
-// use decryption::*;
-// use hash_to_curve::*;
-// use key_share::*;
-// use refresh::*;
 
 pub use ciphertext::*;
 pub use combine::*;
@@ -176,7 +167,9 @@ pub mod test_common {
 
         (
             DkgPublicKey(group_pubkey.into()),
-            PrivateKeyShare(group_privkey.into()), // TODO: Not the correct type since it's a DKG private key, which are never created in the protocol, but it's just for testing
+            // Not the correct type: this is a DKG private key, which the protocol
+            // never creates. Test scaffolding only.
+            PrivateKeyShare(group_privkey.into()),
             private_contexts,
         )
     }

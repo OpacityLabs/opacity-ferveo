@@ -139,7 +139,7 @@ impl<E: Pairing, T> PubliclyVerifiableSS<E, T> {
             .values()
             .map(|validator| {
                 // ek_{i}^{eval_i}, i = validator index
-                // TODO: Replace with regular, single-element exponentiation - #195
+                // TODO: Replace with regular, single-element exponentiation
                 fast_multiexp(
                     // &evals.evals[i..i] = &evals.evals[i]
                     &[evals[validator.share_index as usize]], // one share per validator
@@ -154,7 +154,6 @@ impl<E: Pairing, T> PubliclyVerifiableSS<E, T> {
             ));
         }
 
-        // TODO: Cross check proof of knowledge check with the whitepaper; this check proves that there is a relationship between the secret and the pvss transcript - #201
         // Sigma is a proof of knowledge of the secret, sigma = h^s, where h is
         // the fixed G2 generator.
         //
@@ -191,7 +190,7 @@ impl<E: Pairing, T> PubliclyVerifiableSS<E, T> {
             E::G1::generator(),
             self.sigma, // h^s
         )
-        // TODO: multipairing? - Issue #192
+        // TODO: multipairing?
     }
 
     /// Part of checking the validity of an aggregated PVSS transcript
@@ -230,8 +229,12 @@ pub fn verify_validator_share<E: Pairing>(
     share_index: usize,
     validator_public_key: PublicKey<E>,
 ) -> Result<bool> {
-    // TODO: Check #3 is missing
-    // See #3 in 4.2.3 section of https://eprint.iacr.org/2022/898.pdf
+    // Whitepaper check #3 (4.2.3 of https://eprint.iacr.org/2022/898.pdf) is
+    // covered elsewhere: its degree-bound content is enforced in
+    // `do_verify_full` (see `Error::InvalidTranscriptDegree`), and its
+    // commitment-consistency content is structural here, because the verifier
+    // derives the share commitments itself as A = FFT(F) rather than trusting
+    // dealer-supplied values. See `docs/security-notes.md`.
     let y_i = pvss_encrypted_shares
         .get(share_index)
         .ok_or(Error::InvalidShareIndex(share_index as u32))?;
@@ -243,7 +246,7 @@ pub fn verify_validator_share<E: Pairing>(
     // We verify that e(G, Y_i) = e(A_i, ek_i) for validator i
     // See #4 in 4.2.3 section of https://eprint.iacr.org/2022/898.pdf
     // e(G,Y) = e(A, ek)
-    // TODO: consider using multipairing - Issue #192
+    // TODO: consider using multipairing
     let is_valid =
         E::pairing(E::G1::generator(), *y_i) == E::pairing(*a_i, ek_i);
     Ok(is_valid)
@@ -290,7 +293,6 @@ pub fn do_verify_full<E: Pairing>(
         if !is_valid {
             return Ok(false);
         }
-        // TODO: Should we return Err()?
     }
     Ok(true)
 }
@@ -434,9 +436,9 @@ impl<E: Pairing, T: Aggregate> PubliclyVerifiableSS<E, T> {
             )
             .unwrap();
 
-        // First, verify that all update transcript are valid
-        // TODO: Consider what to do with failed verifications - #176
-        // TODO: Find a better way to ensure they're always validated - #176
+        // First, verify that all update transcript are valid.
+        // Failures panic rather than returning an error; see
+        // `docs/refresh-handover-roadmap.md` (gap 3).
         for update_transcript in update_transcripts.values() {
             update_transcript
                 .verify_refresh(validator_keys_map, &fft_domain)
@@ -446,7 +448,7 @@ impl<E: Pairing, T: Aggregate> PubliclyVerifiableSS<E, T> {
         // Participants refresh their shares with the updates from each other:
         // TODO: Here we're just iterating over all current shares,
         //       implicitly assuming all of them will be refreshed.
-        //       Generalize to allow refreshing just a subset of the shares. - #199
+        //       Generalize to allow refreshing just a subset of the shares.
         let mut indices: Vec<u32> =
             validator_keys_map.keys().copied().collect::<Vec<u32>>();
         indices.sort();
@@ -556,7 +558,7 @@ pub struct AggregatedTranscript<E: Pairing> {
     pub public_key: ferveo_tdec::DkgPublicKey<E>,
 }
 
-// TODO: Add tests - #202
+// TODO: Add tests for AggregatedTranscript
 impl<E: Pairing> AggregatedTranscript<E> {
     pub fn from_transcripts(
         transcripts: &[PubliclyVerifiableSS<E>],
@@ -647,7 +649,7 @@ mod test_pvss {
     #[test_case(30, 30; "N is not a power of 2, t=N")]
     fn test_new_pvss(shares_num: u32, security_threshold: u32) {
         let rng = &mut ark_std::test_rng();
-        let validators_num = shares_num; // TODO: #197
+        let validators_num = shares_num;
 
         let (dkg, _, _) = setup_dealt_dkg_with_n_validators(
             security_threshold,
@@ -763,7 +765,7 @@ mod test_pvss {
     #[test_case(30, 16; "N is not a power of 2, t is 1 + 50%")]
     #[test_case(30, 30; "N is not a power of 2, t=N")]
     fn test_aggregate_pvss(shares_num: u32, security_threshold: u32) {
-        let validators_num = shares_num; // TODO: #197
+        let validators_num = shares_num;
         let (dkg, _, messages) = setup_dealt_dkg_with_n_validators(
             security_threshold,
             shares_num,
