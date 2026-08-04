@@ -317,6 +317,41 @@ fn truncated_aggregate_share_lookup_is_rejected() {
     );
 }
 
+/// `DkgParams` derives `Deserialize`, which rebuilds it field by field and so
+/// bypasses the validity check in `DkgParams::new`. A zero security threshold
+/// then underflows `security_threshold - 1`, which in release builds wraps to
+/// `u32::MAX` and aborts the process in the allocator — an abort, not a
+/// catchable panic. `PubliclyVerifiableDkg::new` must re-validate.
+#[test]
+fn deserialized_dkg_params_are_revalidated() {
+    let rng = &mut rand::rngs::StdRng::seed_from_u64(13);
+    let (_, validators, _) = setup(rng);
+
+    // tau = 0, security_threshold = 0, shares_num = 4 (bincode: three fixint LE u32).
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(&0u32.to_le_bytes()); // tau
+    bytes.extend_from_slice(&0u32.to_le_bytes()); // security_threshold
+    bytes.extend_from_slice(&SHARES_NUM.to_le_bytes()); // shares_num
+    let params: ferveo::DkgParams = bincode::deserialize(&bytes)
+        .expect("DkgParams deserializes without validation");
+
+    // The constructor would have rejected these parameters outright.
+    assert!(ferveo::DkgParams::new(0, 0, SHARES_NUM).is_err());
+
+    assert!(
+        matches!(
+            ferveo::PubliclyVerifiableDkg::<ferveo::api::E>::new(
+                &validators,
+                &params,
+                &validators[0],
+            ),
+            Err(Error::InvalidDkgParameters(_, 0))
+        ),
+        "a deserialized DkgParams with threshold 0 must be rejected, not abort \
+         the process later"
+    );
+}
+
 /// A zero decryption key has no inverse; unblinding must return an error rather
 /// than panicking inside ferveo-tdec.
 #[test]

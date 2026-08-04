@@ -37,20 +37,35 @@ impl DkgParams {
         security_threshold: u32,
         shares_num: u32,
     ) -> Result<Self> {
-        if shares_num < security_threshold
-            || shares_num == 0
-            || security_threshold == 0
-        {
-            return Err(Error::InvalidDkgParameters(
-                shares_num,
-                security_threshold,
-            ));
-        }
-        Ok(Self {
+        let params = Self {
             tau,
             security_threshold,
             shares_num,
-        })
+        };
+        params.validate()?;
+        Ok(params)
+    }
+
+    /// Re-check the invariants `new` enforces.
+    ///
+    /// `DkgParams` derives `Deserialize`, which reconstructs it field by field
+    /// and so bypasses `new` entirely. Anything accepting a `DkgParams` from
+    /// outside must call this. A zero security threshold is the dangerous case:
+    /// `PubliclyVerifiableSS::new` computes `security_threshold - 1`, and
+    /// because release builds have overflow checks off it wraps to `u32::MAX`
+    /// and the resulting allocation aborts the process — an abort, not an
+    /// unwindable panic, so no caller can catch it.
+    pub fn validate(&self) -> Result<()> {
+        if self.shares_num < self.security_threshold
+            || self.shares_num == 0
+            || self.security_threshold == 0
+        {
+            return Err(Error::InvalidDkgParameters(
+                self.shares_num,
+                self.security_threshold,
+            ));
+        }
+        Ok(())
     }
 
     pub fn tau(&self) -> u32 {
@@ -91,6 +106,10 @@ impl<E: Pairing> PubliclyVerifiableDkg<E> {
         dkg_params: &DkgParams,
         me: &Validator<E>,
     ) -> Result<Self> {
+        // `dkg_params` may have been deserialized rather than built by
+        // `DkgParams::new`, which would skip its validity check.
+        dkg_params.validate()?;
+
         assert_no_share_duplicates(validators)?;
 
         // Share indices address the evaluation domain positionally: domain
