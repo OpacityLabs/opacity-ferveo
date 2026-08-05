@@ -1,5 +1,6 @@
 use std::{collections::HashMap, fmt, io};
 
+use ark_ec::AffineRepr;
 use ark_poly::{EvaluationDomain, GeneralEvaluationDomain};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ferveo_common::serialization;
@@ -147,6 +148,14 @@ impl DkgPublicKey {
                     )
                 })?;
         let pk: G1Affine = from_bytes(&bytes)?;
+        // Arkworks' validating deserialization accepts the identity as a
+        // legitimate subgroup member, but encrypting to it would make every
+        // shared secret a public constant. Honest DKGs produce an identity
+        // public key only with negligible probability. See
+        // docs/security-notes.md §2.
+        if pk.is_zero() {
+            return Err(Error::IdentityDkgPublicKey);
+        }
         Ok(DkgPublicKey(ferveo_tdec::DkgPublicKey(pk)))
     }
 

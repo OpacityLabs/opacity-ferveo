@@ -45,6 +45,10 @@ pub enum Error {
     #[error("Invalid validator decryption key")]
     InvalidValidatorDecryptionKey,
 
+    /// A DKG public key may not be the identity point
+    #[error("Identity DKG public key")]
+    IdentityDkgPublicKey,
+
     #[error(transparent)]
     BincodeError(#[from] bincode::Error),
 

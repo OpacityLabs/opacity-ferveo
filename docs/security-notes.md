@@ -94,8 +94,10 @@ or unsound consumption of `σ`.
 
 Identity points satisfy pairing-based validity checks vacuously — `e(𝒪, ·) = 1`
 on both sides of any equation — so every such check must exclude them
-explicitly. All rejections are verification-side only, with no wire-format
-consequence, and regression tests live in `ferveo/tests/degenerate_inputs.rs`.
+explicitly. Rejections sit on the verification side and, for the DKG public
+key, at ingestion (`from_bytes` / `encrypt`); the wire format itself is
+unchanged — the accept-set at ingestion shrinks only by points honest parties
+never produce. Regression tests live in `ferveo/tests/degenerate_inputs.rs`.
 
 What the checks enforce:
 
@@ -155,6 +157,15 @@ What the checks enforce:
   shares for objects `encrypt()` could never have produced. This gate is what
   makes the decryption endpoint safe as a decryption oracle (IND-CCA2), so it
   holds unconditionally, regardless of deployment trust.
+- **`api::DkgPublicKey::from_bytes` and `ferveo-tdec`'s `encrypt` reject the
+  identity DKG public key** (`Error::IdentityDkgPublicKey`, one variant per
+  crate). Encrypting to `𝒪` makes the shared secret `e(𝒪, H)^r = 1` in the
+  target group, so the derived AEAD key is a public constant — silent, total
+  confidentiality loss. In-protocol an identity `F₀` never survives
+  verification (bullets above); these checks close the out-of-band path:
+  public-key bytes ingested via `from_bytes`, and — because `api::DkgPublicKey`
+  derives serde `Deserialize` — a key smuggled in via bincode without ever
+  passing `from_bytes`, for which `encrypt` is the last line of defense.
 
 ### Rationale: rejecting identity points is safe and sufficient
 
