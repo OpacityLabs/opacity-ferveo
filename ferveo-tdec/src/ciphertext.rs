@@ -72,6 +72,15 @@ impl<E: Pairing> CiphertextHeader<E> {
         // See: https://eprint.iacr.org/2022/898.pdf
         // See: https://nikkolasg.github.io/ferveo/tpke.html#to-validate-ciphertext-for-ind-cca2-security
 
+        // An identity U or W makes both pairings below the identity of the
+        // target group, so the equation would hold for any aad and any
+        // ciphertext hash — bypassed rather than satisfied. Honest encryption
+        // produces identity points only when r = 0, with negligible
+        // probability. See docs/security-notes.md §2.
+        if self.commitment.is_zero() || self.auth_tag.is_zero() {
+            return Err(Error::CiphertextVerificationFailed);
+        }
+
         // H_G2(U, sym_ctxt_digest, aad)
         let hash_g2 = E::G2Prepared::from(construct_tag_hash::<E>(
             self.commitment,

@@ -266,6 +266,12 @@ impl AggregatedTranscript {
         security_threshold: u32,
         messages: &[ValidatorMessage],
     ) -> Result<bool> {
+        // With zero messages every per-validator and aggregation-sum check
+        // below is vacuously true, so an all-identity aggregate would verify.
+        // See docs/security-notes.md §2.
+        if messages.is_empty() {
+            return Err(Error::NoTranscriptsToVerify);
+        }
         if validators_num < messages.len() as u32 {
             return Err(Error::InvalidAggregateVerificationParameters(
                 validators_num,

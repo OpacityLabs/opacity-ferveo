@@ -187,6 +187,13 @@ impl<E: Pairing, T> PubliclyVerifiableSS<E, T> {
         let Some(f_0) = self.coeffs.first() else {
             return false;
         };
+        // An identity constant term satisfies the pairing equation vacuously
+        // (e(𝒪, G₂) == e(G₁, 𝒪)) and can only arise from a dealer secret of
+        // zero, which honest dealing produces with negligible probability.
+        // See docs/security-notes.md §2.
+        if f_0.is_zero() {
+            return false;
+        }
         // We're only checking the proof of knowledge here, sigma ?= h^s
         // "Does the first coefficient of the secret polynomial match the proof of knowledge?"
         E::pairing(

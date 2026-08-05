@@ -102,6 +102,10 @@ pub enum Error {
     #[error("No transcripts to aggregate")]
     NoTranscriptsToAggregate,
 
+    /// Verifying an aggregate requires at least one transcript message
+    #[error("No transcripts to verify the aggregate against")]
+    NoTranscriptsToVerify,
+
     /// The number of messages may not be greater than the number of validators
     #[error("Invalid aggregate verification parameters: number of validators {0}, number of messages: {1}")]
     InvalidAggregateVerificationParameters(u32, u32),
