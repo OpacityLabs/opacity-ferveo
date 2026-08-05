@@ -110,6 +110,10 @@ pub enum Error {
     #[error("Invalid aggregate verification parameters: number of validators {0}, number of messages: {1}")]
     InvalidAggregateVerificationParameters(u32, u32),
 
+    /// The aggregate's public key must equal its committed polynomial's constant term
+    #[error("Aggregate public key does not match the committed polynomial")]
+    InvalidAggregatePublicKey,
+
     /// Too many transcripts received by the DKG
     #[error("Too many transcripts. Expected: {0}, got: {1}")]
     TooManyTranscripts(u32, u32),

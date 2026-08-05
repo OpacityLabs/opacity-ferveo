@@ -105,8 +105,41 @@ What the checks enforce:
   `e(𝒪, G₂) == e(G₁, 𝒪)`, i.e. `1 == 1`, and yielded the identity as the DKG
   public key — not usefully encryptable-to, and no secret exposed, but a
   `verify() == Ok(true)` that tells the caller something false. The check
-  covers per-dealer transcripts and aggregates alike, under any deployment
-  topology.
+  covers per-dealer transcripts and aggregates alike. For a single dealer an
+  identity `F₀` means a zero secret (negligible probability), but an
+  aggregate's `F₀` is the *sum* of dealer terms, which colluding dealers can
+  drive to the identity deliberately — the rejection is load-bearing there.
+- **Every dealer transcript is verified in its own right during aggregation
+  verification.** `do_verify_aggregation` runs `verify_optimistic` on each
+  transcript before summing. An identity transcript contributes nothing to
+  that sum, so without this an aggregate produced by a *single* dealer
+  verified against a message set padded out with identity transcripts — the
+  caller was told a `t`-of-`n` dealer set had contributed when one dealer had,
+  and that dealer alone knows the DKG secret. The DKG path already rejected
+  such transcripts at dealing time (`dkg::verify_transcripts`); the standalone
+  verification path did not.
+- **`do_verify_full` pins the committed polynomial's degree, not just its
+  coefficient count.** Trailing identity coefficients pad a lower-degree
+  polynomial out to `security_threshold` entries: the count check passes while
+  the effective threshold is lower. In the limit the commitment is to the
+  constant `φ(x) = s`, every validator's share is `s`, and any *single* share
+  reconstructs the secret while verification reports `security_threshold`.
+  Coefficients are now counted up to the last non-identity one
+  (`Error::InvalidTranscriptDegree`).
+- **The core-layer verifiers enforce these rejections independently.**
+  `do_verify_full` (hence `verify_full` and `verify_aggregation`) rejects an
+  identity `F₀` and an empty validator set — the per-validator loop is the
+  only place shares are checked, so an empty set would verify vacuously — and
+  `do_verify_aggregation` rejects an empty transcript list
+  (`Error::NoTranscriptsToVerify`). The guarantees therefore do not depend on
+  entering through `ferveo::api`; they hold for any consumer of the public
+  core functions, under any deployment topology.
+- **`AggregatedTranscript::verify` binds the serialized `public_key` field to
+  the committed polynomial** (`Error::InvalidAggregatePublicKey`). The field
+  is bound to `F₀` only at construction and travels as its own serialized
+  field, so before this check a deserialized aggregate could pass `verify`
+  while `public_key()` returned an arbitrary attacker-chosen point — the
+  identity-public-key footgun by another door.
 - **`AggregatedTranscript::verify` requires a non-empty message set**
   (`Error::NoTranscriptsToVerify`). With zero messages, the per-validator and
   aggregation-sum checks below it are vacuously true. The settled

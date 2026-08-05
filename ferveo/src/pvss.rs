@@ -188,9 +188,10 @@ impl<E: Pairing, T> PubliclyVerifiableSS<E, T> {
             return false;
         };
         // An identity constant term satisfies the pairing equation vacuously
-        // (e(𝒪, G₂) == e(G₁, 𝒪)) and can only arise from a dealer secret of
-        // zero, which honest dealing produces with negligible probability.
-        // See docs/security-notes.md §2.
+        // (e(𝒪, G₂) == e(G₁, 𝒪)). A single dealer produces one only from a
+        // zero secret (negligible probability), but an aggregate's constant
+        // term is the sum of dealer terms, which colluding dealers can drive
+        // to the identity deliberately. See docs/security-notes.md §2.
         if f_0.is_zero() {
             return false;
         }
@@ -290,6 +291,39 @@ pub fn do_verify_full<E: Pairing>(
         ));
     }
 
+    // Trailing identity coefficients pad a lower-degree polynomial out to the
+    // expected count, so the count check above passes while the committed
+    // polynomial has a lower degree — and a lower degree is a lower effective
+    // threshold. In the limit every coefficient above `F₀` is the identity,
+    // the polynomial is the constant `φ(x) = s`, every validator's share is
+    // `s`, and any single share reconstructs the secret while verification
+    // still reports `security_threshold`. Only coefficients up to the last
+    // non-identity one pin the degree.
+    let degree_pinning_len = pvss_coefficients
+        .iter()
+        .rposition(|coeff| !coeff.is_zero())
+        .map_or(0, |last| last + 1);
+    if degree_pinning_len != security_threshold as usize {
+        return Err(Error::InvalidTranscriptDegree(
+            security_threshold,
+            degree_pinning_len as u32,
+        ));
+    }
+
+    // An identity constant term makes every pairing check below vacuous
+    // (e(𝒪, ·) = 1) and the aggregation-sum comparison trivially satisfiable;
+    // reject it here so the core-layer verifiers cannot accept an all-identity
+    // transcript. See `verify_optimistic` and docs/security-notes.md §2.
+    if pvss_coefficients.first().is_none_or(|f_0| f_0.is_zero()) {
+        return Ok(false);
+    }
+
+    // The per-validator loop below is the only place shares are checked, so an
+    // empty validator set would make full verification vacuously true.
+    if validators.is_empty() {
+        return Ok(false);
+    }
+
     let share_commitments = get_share_commitments_from_poly_commitments::<E>(
         pvss_coefficients,
         domain,
@@ -318,6 +352,13 @@ pub fn do_verify_aggregation<E: Pairing>(
     pvss: &[PubliclyVerifiableSS<E>],
     security_threshold: u32,
 ) -> Result<bool> {
+    // With no transcripts the aggregation-sum check below compares against
+    // the empty sum 𝒪, which an all-identity aggregate would satisfy
+    // vacuously. See docs/security-notes.md §2.
+    if pvss.is_empty() {
+        return Err(Error::NoTranscriptsToVerify);
+    }
+
     let is_valid = do_verify_full(
         pvss_agg_coefficients,
         pvss_agg_encrypted_shares,
@@ -334,6 +375,15 @@ pub fn do_verify_aggregation<E: Pairing>(
     // neither constant term may be indexed blindly.
     let y = pvss.iter().try_fold(E::G1::zero(), |acc, pvss| {
         let f_0 = pvss.coeffs.first().ok_or(Error::EmptyTranscript)?;
+        // Each dealer transcript must be valid in its own right. An identity
+        // transcript contributes nothing to the sum below, so without this a
+        // dealer set could be padded with identity transcripts and an
+        // aggregate produced by a single dealer would verify as one produced
+        // by many — the aggregate secret would be known to that dealer alone.
+        // See docs/security-notes.md §2.
+        if !pvss.verify_optimistic() {
+            return Err(Error::InvalidTranscriptAggregate);
+        }
         Ok::<_, Error>(acc + f_0.into_group())
     })?;
     let agg_f_0 = pvss_agg_coefficients
@@ -842,5 +892,71 @@ mod test_pvss {
                 .to_string(),
             "Transcript aggregate doesn't match the received PVSS instances"
         )
+    }
+
+    /// The core-layer verifiers must reject an all-identity aggregate and an
+    /// empty transcript list; without explicit rejection every pairing check
+    /// and the aggregation-sum comparison are vacuously true (e(𝒪, ·) = 1,
+    /// 𝒪 == 𝒪) regardless of entry point.
+    #[test]
+    fn test_core_verifiers_reject_all_identity_aggregate() {
+        let (dkg, _, messages) = setup_dealt_dkg();
+        let pvss_list =
+            messages.iter().map(|(_, pvss)| pvss).cloned().collect_vec();
+        let mut aggregate = aggregate(&pvss_list).unwrap();
+
+        // Positive control, and: even an honest aggregate must not verify
+        // against an empty transcript list.
+        assert!(aggregate.verify_full(&dkg).unwrap());
+        assert!(matches!(
+            aggregate.verify_aggregation(&dkg, &[]),
+            Err(crate::Error::NoTranscriptsToVerify)
+        ));
+
+        // An identity constant term, with the degree still pinned by the
+        // remaining coefficients, fails full verification.
+        let mut identity_f_0 = aggregate.clone();
+        identity_f_0.coeffs[0] = G1::zero();
+        assert!(!identity_f_0.verify_full(&dkg).unwrap());
+
+        // An all-identity aggregate pins no degree at all.
+        let threshold = dkg.dkg_params.security_threshold() as usize;
+        aggregate.coeffs = vec![G1::zero(); threshold];
+        aggregate.shares = vec![G2::zero(); dkg.validators.len()];
+        aggregate.sigma = G2::zero();
+
+        assert!(matches!(
+            aggregate.verify_full(&dkg),
+            Err(crate::Error::InvalidTranscriptDegree(t, 0))
+                if t as usize == threshold
+        ));
+        assert!(matches!(
+            aggregate.verify_aggregation(&dkg, &pvss_list),
+            Err(crate::Error::InvalidTranscriptDegree(..))
+        ));
+        assert!(matches!(
+            aggregate.verify_aggregation(&dkg, &[]),
+            Err(crate::Error::NoTranscriptsToVerify)
+        ));
+    }
+
+    /// The per-validator loop is the only place shares are checked, so an
+    /// empty validator set would make full verification vacuously true.
+    #[test]
+    fn test_do_verify_full_rejects_an_empty_validator_set() {
+        let (dkg, _, messages) = setup_dealt_dkg();
+        let pvss_list =
+            messages.iter().map(|(_, pvss)| pvss).cloned().collect_vec();
+        let aggregate = aggregate(&pvss_list).unwrap();
+
+        assert!(aggregate.verify_full(&dkg).unwrap());
+        assert!(!do_verify_full::<EllipticCurve>(
+            &aggregate.coeffs,
+            &aggregate.shares,
+            &[],
+            &dkg.domain,
+            dkg.dkg_params.security_threshold(),
+        )
+        .unwrap());
     }
 }

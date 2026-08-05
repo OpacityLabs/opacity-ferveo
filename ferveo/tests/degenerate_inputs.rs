@@ -102,14 +102,119 @@ fn identity_constant_term_transcript_is_rejected() {
     let dkg = Dkg::new(TAU, SHARES_NUM, THRESHOLD, &validators, &validators[0])
         .unwrap();
 
+    // Positive control: the unmutated message set aggregates.
+    assert!(dkg.aggregate_transcripts(&messages).is_ok());
+
     messages[1].1.coeffs[0] = G1Affine::zero();
     messages[1].1.sigma = G2Affine::zero();
     assert!(
         matches!(
             dkg.aggregate_transcripts(&messages),
-            Err(Error::InvalidPvssTranscript(_))
+            Err(Error::InvalidPvssTranscript(addr))
+                if addr == validators[1].address
         ),
-        "an identity-F₀ dealer transcript must be rejected"
+        "the identity-F₀ dealer transcript must be rejected, blaming dealer 1"
+    );
+}
+
+/// The aggregate's public key travels as its own serialized field, bound to
+/// the committed polynomial only at construction. `verify` must reject an
+/// aggregate whose `public_key` field disagrees with the constant term F₀ —
+/// whether swapped to the identity or to any other point.
+#[test]
+fn tampered_aggregate_public_key_is_rejected() {
+    let rng = &mut rand::rngs::StdRng::seed_from_u64(3);
+    let (_, validators, messages) = setup(rng);
+    let dkg = Dkg::new(TAU, SHARES_NUM, THRESHOLD, &validators, &validators[0])
+        .unwrap();
+    let aggregate = dkg.aggregate_transcripts(&messages).unwrap();
+
+    // Positive control: the honest aggregate verifies.
+    assert!(aggregate.verify(SHARES_NUM, THRESHOLD, &messages).is_ok());
+
+    let mut inner: ferveo::AggregatedTranscript<ferveo::api::E> =
+        bincode::deserialize(&aggregate.to_bytes().unwrap()).unwrap();
+    for wrong_point in [G1Affine::zero(), G1Affine::generator()] {
+        inner.public_key = ferveo_tdec::DkgPublicKey(wrong_point);
+        let tampered = AggregatedTranscript::from_bytes(
+            &bincode::serialize(&inner).unwrap(),
+        )
+        .expect("tampered aggregate should still deserialize");
+        assert!(
+            matches!(
+                tampered.verify(SHARES_NUM, THRESHOLD, &messages),
+                Err(Error::InvalidAggregatePublicKey)
+            ),
+            "a public_key field disagreeing with F₀ must be rejected"
+        );
+    }
+}
+
+/// Identity dealer transcripts contribute nothing to the aggregation sum, so
+/// they could pad a dealer set: an aggregate produced by a single dealer would
+/// verify as one produced by many, though that dealer alone knows the secret.
+/// Every dealer transcript must therefore be verified in its own right.
+#[test]
+fn identity_transcripts_cannot_pad_the_dealer_set() {
+    let rng = &mut rand::rngs::StdRng::seed_from_u64(4);
+    let (_, validators, messages) = setup(rng);
+    let dkg = Dkg::new(TAU, SHARES_NUM, THRESHOLD, &validators, &validators[0])
+        .unwrap();
+
+    // An aggregate over a single dealer, verified against its own message set.
+    let aggregate = dkg.aggregate_transcripts(&messages[..1]).unwrap();
+    assert!(aggregate
+        .verify(SHARES_NUM, THRESHOLD, &messages[..1])
+        .is_ok());
+
+    // The same aggregate, presented as if all four validators had dealt.
+    let mut padded = messages;
+    for message in padded.iter_mut().skip(1) {
+        message.1.coeffs = vec![G1Affine::zero(); THRESHOLD as usize];
+        message.1.shares = vec![G2Affine::zero(); SHARES_NUM as usize];
+        message.1.sigma = G2Affine::zero();
+    }
+    assert!(
+        matches!(
+            aggregate.verify(SHARES_NUM, THRESHOLD, &padded),
+            Err(Error::InvalidTranscriptAggregate)
+        ),
+        "identity transcripts must not pad a single-dealer aggregate into a \
+         four-dealer one"
+    );
+}
+
+/// Trailing identity coefficients pad a lower-degree polynomial out to the
+/// expected coefficient count, lowering the effective threshold: a constant
+/// polynomial gives every validator the same share, so any single share
+/// reconstructs the secret while verification still reports the threshold.
+#[test]
+fn trailing_identity_coefficients_are_rejected() {
+    let rng = &mut rand::rngs::StdRng::seed_from_u64(5);
+    let (_, validators, messages) = setup(rng);
+    let dkg = Dkg::new(TAU, SHARES_NUM, THRESHOLD, &validators, &validators[0])
+        .unwrap();
+    let aggregate = dkg.aggregate_transcripts(&messages).unwrap();
+
+    // Positive control: the honest aggregate has a full-degree commitment.
+    assert!(aggregate.verify(SHARES_NUM, THRESHOLD, &messages).is_ok());
+
+    let mut inner: ferveo::AggregatedTranscript<ferveo::api::E> =
+        bincode::deserialize(&aggregate.to_bytes().unwrap()).unwrap();
+    // Zero the leading coefficient: still THRESHOLD entries, but the committed
+    // polynomial now has degree THRESHOLD - 2.
+    *inner.aggregate.coeffs.last_mut().unwrap() = G1Affine::zero();
+    let padded =
+        AggregatedTranscript::from_bytes(&bincode::serialize(&inner).unwrap())
+            .expect("padded aggregate should still deserialize");
+    assert!(
+        matches!(
+            padded.verify(SHARES_NUM, THRESHOLD, &messages),
+            Err(Error::InvalidTranscriptDegree(THRESHOLD, got))
+                if got == THRESHOLD - 1
+        ),
+        "a commitment padded with trailing identity coefficients must be \
+         rejected as the lower degree it actually pins"
     );
 }
 
@@ -139,21 +244,40 @@ fn all_identity_ciphertext_header_is_rejected() {
     zeroed.commitment = G1Affine::zero();
     zeroed.auth_tag = G2Affine::zero();
     // The gate must fail under the original AAD and any other alike.
-    assert!(zeroed.header().unwrap().check(AAD).is_err());
-    assert!(zeroed.header().unwrap().check(b"unrelated-aad").is_err());
+    assert!(matches!(
+        zeroed.header().unwrap().check(AAD),
+        Err(ferveo_tdec::Error::CiphertextVerificationFailed)
+    ));
+    assert!(matches!(
+        zeroed.header().unwrap().check(b"unrelated-aad"),
+        Err(ferveo_tdec::Error::CiphertextVerificationFailed)
+    ));
+
+    // Positive control: the honest header yields a decryption share.
+    assert!(aggregate
+        .create_decryption_share_simple(
+            &dkg,
+            &ciphertext.header().unwrap(),
+            AAD,
+            &keypairs[0],
+        )
+        .is_ok());
 
     let zeroed_api =
         Ciphertext::from_bytes(&bincode::serialize(&zeroed).unwrap())
             .expect("zeroed ciphertext should still deserialize");
     assert!(
-        aggregate
-            .create_decryption_share_simple(
+        matches!(
+            aggregate.create_decryption_share_simple(
                 &dkg,
                 &zeroed_api.header().unwrap(),
                 AAD,
                 &keypairs[0],
-            )
-            .is_err(),
+            ),
+            Err(Error::ThresholdEncryptionError(
+                ferveo_tdec::Error::CiphertextVerificationFailed
+            ))
+        ),
         "no decryption share may be produced for an all-identity header"
     );
 }

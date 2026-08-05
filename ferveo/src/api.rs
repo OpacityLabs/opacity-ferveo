@@ -287,6 +287,19 @@ impl AggregatedTranscript {
             return Err(Error::InvalidTranscriptAggregate);
         }
 
+        // The public key travels as its own serialized field, bound to the
+        // committed polynomial only at construction — a deserialized aggregate
+        // could carry any point there. See docs/security-notes.md §2.
+        let f_0 = self
+            .0
+            .aggregate
+            .coeffs
+            .first()
+            .ok_or(Error::InvalidTranscriptAggregate)?;
+        if self.0.public_key.0 != *f_0 {
+            return Err(Error::InvalidAggregatePublicKey);
+        }
+
         let validators: Vec<_> = messages
             .iter()
             .map(|(validator, _)| validator)
