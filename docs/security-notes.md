@@ -47,8 +47,8 @@ Rationale:
    contribution requires multiple dealers and cannot arise at all today. The
    assumption becomes operative only if a multi-dealer flow is adopted — a
    p2p DKG, or the refresh/handover/recovery subsystems (multi-party update
-   transcripts), none of which opacity-stack currently uses. Revisit this
-   section before enabling any of those.
+   transcripts), none of which opacity-stack currently uses. See §3 before
+   enabling any of those.
 
 Independently, `σ` is **wire-format-locked**: it is serialized into every
 transcript and pinned by the golden vectors in `ferveo/tests/wire_format.rs`, so
@@ -62,34 +62,6 @@ Opacity crypto review brief —
 References: IACR ePrint 2022/898 §4.2.3; upstream NuCypher ferveo issue #44. This
 topic was formerly tracked upstream as #201 (and the hash-to-curve base-point
 note as #195).
-
-### If/when the DKG becomes multi-dealer
-
-A fully decentralized DKG — every party generating and broadcasting its own
-transcript — is a plausible future direction if the system keeps its current
-architecture, but it is **not planned or designed today** (too many unknowns to
-commit to it). The refresh/handover subsystems (#200) are a nearer
-multi-party-dealing flow. Either one introduces multiple dealers — exactly what
-point 2 (single dealer) rules out today. Footguns to revisit *before* enabling
-any multi-party dealing:
-
-- **Point 1 stops being a footnote and becomes the operative security argument.**
-  Today the AGM/KOE reduction is never exercised — there is no adversarial dealer.
-  Under multi-dealer, a malicious dealer can try to choose its contribution as a
-  function of the others' (rogue-key style), and aggregation soundness then rests
-  entirely on the AGM/KOE proof-of-knowledge of `σ`. That dependency must be
-  accepted deliberately (and ideally independently reviewed), not inherited
-  silently.
-- **`σ` is proof of *possession*, not extractable knowledge without the AGM.** A
-  deployment that cannot assume the AGM would need `σ` replaced by an extractable
-  PoK (Schnorr / Fiat–Shamir) — a wire-format-breaking change.
-- **Attested TEEs substitute for the PoK only if *every* dealer is enclaved.**
-  Leaning on enclave-honest generation instead of an extractable `σ` holds only
-  when all parties run attested TEEs; a DKG across parties that are not all
-  enclaved loses that out-of-band guarantee, leaving only the AGM/KOE argument.
-
-None of this affects the current single-dealer deployment; it is recorded so the
-assumption is revisited — not rediscovered — if the architecture moves that way.
 
 ### σ reuse audit
 
@@ -177,7 +149,7 @@ and emit shares for objects that `encrypt()` could never have produced.
 ### Rationale: rejecting identity points is safe and sufficient
 
 The arguments are elementary and need no external cryptographic review (unlike
-the §1 multi-dealer bundle, which still warrants one if it ever becomes
+the multi-dealer bundle in §3, which still warrants one if it ever becomes
 operative).
 
 1. **The identity is the only degenerate point that survives deserialization.**
@@ -221,22 +193,51 @@ operative).
   rejection.
 - Wire format untouched; both changes are verification-side only.
 
-### Single-operator trust assumptions — re-examine if the deployment changes
+## 3. If/when the single-operator, single-dealer model changes
 
-The current deployment has one operator running both the director and every
-node (§1, "single dealer"). Facts that are acceptable *only* under that model,
-labeled here so they are revisited — not rediscovered — if it changes:
+Today one operator runs both the director and every node, and the director is
+the sole dealer (§1). Everything in this file that is conditioned on that model
+is collected here, so it is revisited — not rediscovered — when the model
+changes. Two distinct triggers, which can arrive independently:
+
+### Trigger: multiple operators (federated nodes or director)
 
 - **Nodes do not verify the director-supplied aggregate.** opacity-stack nodes
   deserialize the aggregate they receive and use it without calling `verify`
   (opacity-stack `node/src/dkg.rs`). Fine while the director is operator-run;
   a federated deployment must add node-side verification of the aggregate
   against the ceremony messages.
-- **Identity-rejection does not address multi-dealer key biasing.** A rushing
-  dealer in a multi-dealer flow could force `F₀` to any chosen value — `𝒪` is
-  merely one of them. That is the §1 AGM/KOE σ bundle, out of scope for this
-  fix and moot under a single dealer.
 
-Deliberately **not** on this list: gap 2.2. The ciphertext-validity gate exists
-precisely so the node's decryption endpoint is safe as a decryption oracle; it
-must hold unconditionally, regardless of who can reach the endpoint today.
+Deliberately **not** conditioned on this trigger: gap 2.2. The
+ciphertext-validity gate exists precisely so the node's decryption endpoint is
+safe as a decryption oracle; it must hold unconditionally, regardless of who
+can reach the endpoint today.
+
+### Trigger: multiple dealers (a p2p DKG, or the refresh/handover flows)
+
+A fully decentralized DKG — every party generating and broadcasting its own
+transcript — is a plausible future direction if the system keeps its current
+architecture, but it is **not planned or designed today** (too many unknowns to
+commit to it). The refresh/handover subsystems are a nearer multi-party-dealing
+flow (see `docs/refresh-handover-roadmap.md`). Either one introduces multiple
+dealers — exactly what §1's rationale point 2 rules out today. Footguns to
+revisit *before* enabling any multi-party dealing:
+
+- **§1's rationale point 1 stops being a footnote and becomes the operative
+  security argument.** Today the AGM/KOE reduction is never exercised — there is
+  no adversarial dealer. Under multi-dealer, a malicious dealer can try to
+  choose its contribution as a function of the others' (rogue-key style), and
+  aggregation soundness then rests entirely on the AGM/KOE proof-of-knowledge of
+  `σ`. That dependency must be accepted deliberately (and ideally independently
+  reviewed), not inherited silently.
+- **`σ` is proof of *possession*, not extractable knowledge without the AGM.** A
+  deployment that cannot assume the AGM would need `σ` replaced by an extractable
+  PoK (Schnorr / Fiat–Shamir) — a wire-format-breaking change.
+- **Attested TEEs substitute for the PoK only if *every* dealer is enclaved.**
+  Leaning on enclave-honest generation instead of an extractable `σ` holds only
+  when all parties run attested TEEs; a DKG across parties that are not all
+  enclaved loses that out-of-band guarantee, leaving only the AGM/KOE argument.
+- **Identity-rejection (§2) does not address multi-dealer key biasing.** A
+  rushing dealer in a multi-dealer flow could force `F₀` to any chosen value —
+  `𝒪` is merely one of them. Key-bias resistance rests on the σ
+  proof-of-knowledge above, not on the §2 fixes.
