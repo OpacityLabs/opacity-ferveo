@@ -331,6 +331,18 @@ pub fn do_verify_full<E: Pairing>(
 
     // Each validator checks that their share is correct
     for validator in validators {
+        // An identity encryption key ek_i makes the per-slot check below
+        // vacuous: a dealer's blinded share Y_i = [f(ω_i)]·ek_i is the
+        // identity, and e(G, Y_i) == e(A_i, ek_i) holds as 1 == 1 — a dead
+        // slot that can never produce a decryption share would verify.
+        // `Dkg::new` also rejects such validators, but this verifier accepts
+        // caller-supplied validator sets that never pass through it. See
+        // docs/security-notes.md §2.
+        if validator.public_key.encryption_key.is_zero() {
+            return Err(Error::IdentityValidatorEncryptionKey(
+                validator.address.clone(),
+            ));
+        }
         let is_valid = verify_validator_share(
             &share_commitments,
             pvss_encrypted_shares,

@@ -121,6 +121,10 @@ pub enum Error {
     /// Received a duplicated transcript from a validator
     #[error("Received a duplicated transcript from validator: {0}")]
     DuplicateTranscript(EthereumAddress),
+
+    /// A validator's encryption key is the identity point
+    #[error("Validator encryption key is the identity point: {0}")]
+    IdentityValidatorEncryptionKey(EthereumAddress),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

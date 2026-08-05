@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use ark_ec::pairing::Pairing;
+use ark_ec::{pairing::Pairing, AffineRepr};
 use ark_poly::EvaluationDomain;
 use ark_std::UniformRand;
 use ferveo_common::PublicKey;
@@ -121,6 +121,20 @@ impl<E: Pairing> PubliclyVerifiableDkg<E> {
         for validator in validators {
             if validator.share_index as usize >= validators.len() {
                 return Err(Error::InvalidShareIndex(validator.share_index));
+            }
+            // An identity encryption key ek_i makes the blinded share
+            // Y_i = [f(ω_i)]·ek_i the identity, so the per-slot check
+            // e(G, Y_i) == e(A_i, ek_i) holds vacuously and a verified
+            // aggregate carries a slot that can never produce a decryption
+            // share, silently shrinking the liveness margin. `PublicKey`
+            // derives serde `Deserialize`, so an identity key can reach a
+            // `Validator` without passing `PublicKey::from_bytes`; admission
+            // into the DKG rejects it early, and `do_verify_full` re-checks
+            // at verification. See docs/security-notes.md §2.
+            if validator.public_key.encryption_key.is_zero() {
+                return Err(Error::IdentityValidatorEncryptionKey(
+                    validator.address.clone(),
+                ));
             }
         }
 

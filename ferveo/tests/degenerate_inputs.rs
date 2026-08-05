@@ -218,6 +218,75 @@ fn trailing_identity_coefficients_are_rejected() {
     );
 }
 
+/// A validator whose encryption key is the identity yields blinded shares
+/// Y_i = [f(ω_i)]·𝒪 = 𝒪, so the per-slot check e(G, Y_i) == e(A_i, ek_i)
+/// holds vacuously (1 == 1): a verified aggregate carries a dead slot that
+/// can never produce a decryption share, silently shrinking the liveness
+/// margin below the threshold. The DKG must refuse to admit such a validator.
+#[test]
+fn identity_validator_encryption_key_is_rejected() {
+    let rng = &mut rand::rngs::StdRng::seed_from_u64(6);
+    let (_, mut validators, _) = setup(rng);
+
+    // Positive control: the honest validator set constructs.
+    assert!(
+        Dkg::new(TAU, SHARES_NUM, THRESHOLD, &validators, &validators[0])
+            .is_ok()
+    );
+
+    validators[1].public_key = ferveo_common::PublicKey {
+        encryption_key: G2Affine::zero(),
+    };
+    assert!(
+        matches!(
+            Dkg::new(TAU, SHARES_NUM, THRESHOLD, &validators, &validators[0]),
+            Err(Error::IdentityValidatorEncryptionKey(addr))
+                if addr == validators[1].address
+        ),
+        "a validator with an identity encryption key must be rejected, \
+         blaming that validator"
+    );
+}
+
+/// `AggregatedTranscript::verify` takes its validator set from the caller's
+/// messages, never passing through `Dkg::new` — so the identity-encryption-key
+/// dead slot must also be rejected at the verification boundary. Without the
+/// check, an aggregate whose slot i carries Y_i = 𝒪 verifies against a
+/// validator with ek_i = 𝒪 (both pairings equal 1) and the caller accepts a
+/// transcript with a slot that can never produce a decryption share.
+#[test]
+fn identity_encryption_key_dead_slot_fails_aggregate_verification() {
+    let rng = &mut rand::rngs::StdRng::seed_from_u64(7);
+    let (_, validators, mut messages) = setup(rng);
+    let dkg = Dkg::new(TAU, SHARES_NUM, THRESHOLD, &validators, &validators[0])
+        .unwrap();
+    let aggregate = dkg.aggregate_transcripts(&messages).unwrap();
+
+    // Positive control: the honest aggregate verifies.
+    assert!(aggregate.verify(SHARES_NUM, THRESHOLD, &messages).is_ok());
+
+    // The dead slot: an identity blinded share for validator 1, presented
+    // alongside an identity encryption key for the same validator.
+    let mut inner: ferveo::AggregatedTranscript<ferveo::api::E> =
+        bincode::deserialize(&aggregate.to_bytes().unwrap()).unwrap();
+    inner.aggregate.shares[1] = G2Affine::zero();
+    let dead_slot =
+        AggregatedTranscript::from_bytes(&bincode::serialize(&inner).unwrap())
+            .expect("dead-slot aggregate should still deserialize");
+    messages[1].0.public_key = ferveo_common::PublicKey {
+        encryption_key: G2Affine::zero(),
+    };
+    assert!(
+        matches!(
+            dead_slot.verify(SHARES_NUM, THRESHOLD, &messages),
+            Err(Error::IdentityValidatorEncryptionKey(addr))
+                if addr == validators[1].address
+        ),
+        "an identity-encryption-key dead slot must fail verification, \
+         blaming that validator"
+    );
+}
+
 /// A ciphertext whose commitment U and auth tag W are both the identity used
 /// to pass the §4.4.2 validity gate for any AAD and any ciphertext hash. The
 /// gate must now reject it, and no decryption share may be produced.
