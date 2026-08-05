@@ -90,61 +90,38 @@ unchanged `F₀`; no re-derivation is needed and none is missing.
 (`verify_optimistic`). The refresh/handover copy-forward introduces no additional
 or unsound consumption of `σ`.
 
-## 2. Degenerate-input validity gaps — fix planned
+## 2. Degenerate-input (identity-point) rejection
 
-Two validity checks accept degenerate (all-identity) inputs that the protocol
-should reject. Neither is a crash or a key-recovery risk, and both fixes are
-verification-side only, with no wire-format consequence. The rationale below
-settles the cryptographic questions, so the remaining work is mechanical.
+Identity points satisfy pairing-based validity checks vacuously — `e(𝒪, ·) = 1`
+on both sides of any equation — so every such check must exclude them
+explicitly. All rejections are verification-side only, with no wire-format
+consequence, and regression tests live in `ferveo/tests/degenerate_inputs.rs`.
 
-### 2.1 An all-identity aggregate verifies against an empty message set
+What the checks enforce:
 
-`AggregatedTranscript::verify(validators_num, security_threshold, messages)`
-checks only an *upper* bound on the message count (`validators_num <
-messages.len()`). Nothing requires at least one message, and nothing requires
-the aggregate's constant term `F₀` to be a non-identity point.
-
-Given an aggregate with `coeffs = [𝒪; t]` (length equal to the security
-threshold, so the degree check passes), `shares = []` and `σ = 𝒪`:
-
-- `verify_optimistic` computes `e(𝒪, G₂) == e(G₁, 𝒪)`, i.e. `1 == 1` — passes.
-- `do_verify_full` iterates over an empty validator set — vacuously true.
-- The aggregation check sums an empty transcript list to `𝒪` and compares it to
-  `F₀ = 𝒪` — equal.
-
-Concretely, `verify(4, 3, &[])` returns `Ok(true)` on such an aggregate, and
-the corresponding DKG public key is the identity.
-
-Impact is bounded — an identity public key is not a key anyone can usefully
-encrypt to, and no secret is exposed — but any caller treating `verify() == Ok(true)`
-as "this aggregate is a real, usable DKG result" is being told something false.
-Exposure is also nil until the fix lands: under the current single-operator
-deployment, `verify` is invoked only by the director, on messages it just
-generated itself. The fix is made in the library regardless — a verifier's
-meaning should not depend on caller topology — and once it lands, this gap
-stays closed under any deployment model.
-
-### 2.2 The all-zero ciphertext header passes the §4.4.2 validity check
-
-`CiphertextHeader::check` implements the ciphertext-validity gate as
-
-```
-e(U, H_G2(U, ciphertext_hash, aad)) · e(-G, W) == 1
-```
-
-With `U = 𝒪` and `W = 𝒪` both pairings are the identity of the target group, so
-the product is `1` and the check passes **for any `aad` and any
-`ciphertext_hash`** — the gate is bypassed rather than satisfied.
-
-Concretely, a ciphertext whose commitment and auth tag are zeroed passes
-validation under an AAD unrelated to the one it was encrypted with, and
-`create_decryption_share_simple` returns a share for it.
-
-The emitted share is itself degenerate (`D_i = e(𝒪, ·) = 1`, checksum `𝒪`), so no
-key material leaks. The concern is that the IND-CCA2 ciphertext-validity gate —
-the check that is supposed to make a decryption oracle safe — does not hold for
-this input class, and nodes can be induced to do hash-to-curve and pairing work
-and emit shares for objects that `encrypt()` could never have produced.
+- **`PubliclyVerifiableSS::verify_optimistic` rejects an identity constant term
+  `F₀`.** Without this, an all-identity aggregate (`coeffs = [𝒪; t]`,
+  `shares = []`, `σ = 𝒪`) satisfied the proof-of-knowledge pairing as
+  `e(𝒪, G₂) == e(G₁, 𝒪)`, i.e. `1 == 1`, and yielded the identity as the DKG
+  public key — not usefully encryptable-to, and no secret exposed, but a
+  `verify() == Ok(true)` that tells the caller something false. The check
+  covers per-dealer transcripts and aggregates alike, under any deployment
+  topology.
+- **`AggregatedTranscript::verify` requires a non-empty message set**
+  (`Error::NoTranscriptsToVerify`). With zero messages, the per-validator and
+  aggregation-sum checks below it are vacuously true. The settled
+  message-count contract is `1 ≤ messages.len() ≤ validators_num`: verifying
+  an aggregate built from a subset of validators is legitimate (fewer dealers
+  than validators is a supported configuration), so no exact-count rule
+  applies; which dealer set to expect is the caller's knowledge.
+- **`CiphertextHeader::check` rejects an identity commitment `U` or auth tag
+  `W`** (`Error::CiphertextVerificationFailed`). The §4.4.2 gate
+  `e(U, H_G2(U, ciphertext_hash, aad)) · e(-G, W) == 1` held for `U = W = 𝒪`
+  under **any** `aad` and any ciphertext hash — bypassed rather than
+  satisfied — and nodes would emit (degenerate, non-secret-bearing) decryption
+  shares for objects `encrypt()` could never have produced. This gate is what
+  makes the decryption endpoint safe as a decryption oracle (IND-CCA2), so it
+  holds unconditionally, regardless of deployment trust.
 
 ### Rationale: rejecting identity points is safe and sufficient
 
@@ -178,20 +155,8 @@ operative).
 
 4. **Enforcement belongs in `verify`, not the caller.** A function named
    `verify` returning `Ok(true)` for an unusable aggregate is a footgun
-   regardless of today's call sites. The message-count contract is part of the
-   same question: the current check is only an upper bound (`validators_num <
-   messages.len()` errors), where exact equality with the expected validator
-   count is the natural contract.
-
-### Planned fix
-
-- `CiphertextHeader::check`: reject an identity commitment (`U`) or auth tag
-  (`W`) before the pairing check.
-- `AggregatedTranscript::verify`: require a non-empty message set and a
-  non-identity constant term `F₀`; settle the exact message-count contract.
-- Adversarial tests mirroring both degenerate examples above, asserting
-  rejection.
-- Wire format untouched; both changes are verification-side only.
+   regardless of call sites — a verifier's meaning should not depend on caller
+   topology.
 
 ## 3. If/when the single-operator, single-dealer model changes
 
@@ -208,8 +173,8 @@ changes. Two distinct triggers, which can arrive independently:
   a federated deployment must add node-side verification of the aggregate
   against the ceremony messages.
 
-Deliberately **not** conditioned on this trigger: gap 2.2. The
-ciphertext-validity gate exists precisely so the node's decryption endpoint is
+Deliberately **not** conditioned on this trigger: the §2 ciphertext-validity
+rejection. That gate exists precisely so the node's decryption endpoint is
 safe as a decryption oracle; it must hold unconditionally, regardless of who
 can reach the endpoint today.
 
