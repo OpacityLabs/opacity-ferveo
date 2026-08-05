@@ -148,8 +148,11 @@ fn empty_coeffs_aggregate_is_rejected_by_verify() {
     let tampered = AggregatedTranscript::from_bytes(&tampered_bytes)
         .expect("tampered aggregate should still deserialize");
     assert!(
-        tampered.verify(SHARES_NUM, THRESHOLD, &messages).is_err(),
-        "empty-coeffs aggregate must be an error, not a panic"
+        matches!(
+            tampered.verify(SHARES_NUM, THRESHOLD, &messages),
+            Err(Error::InvalidTranscriptAggregate)
+        ),
+        "empty-coeffs aggregate must fail the optimistic aggregate check"
     );
 }
 
@@ -216,15 +219,18 @@ fn tampered_ciphertext_header_is_rejected_by_decryption_share() {
     // Associated data that does not match the ciphertext makes the header fail
     // its validity check — the same outcome as a forged or corrupted header.
     assert!(
-        aggregate
-            .create_decryption_share_simple(
+        matches!(
+            aggregate.create_decryption_share_simple(
                 &dkg,
                 &ciphertext.header().unwrap(),
                 b"wrong-aad",
                 &keypairs[0],
-            )
-            .is_err(),
-        "unverifiable ciphertext header must be an error, not a panic"
+            ),
+            Err(Error::ThresholdEncryptionError(
+                ferveo_tdec::Error::CiphertextVerificationFailed
+            ))
+        ),
+        "unverifiable ciphertext header must fail the ciphertext validity check"
     );
 }
 
@@ -304,15 +310,16 @@ fn truncated_aggregate_share_lookup_is_rejected() {
     // The precomputed variant removed three panics of its own and needs the
     // same coverage.
     assert!(
-        tampered
-            .create_decryption_share_precomputed(
+        matches!(
+            tampered.create_decryption_share_precomputed(
                 &dkg,
                 &ciphertext.header().unwrap(),
                 AAD,
                 &keypairs[3],
                 &validators,
-            )
-            .is_err(),
+            ),
+            Err(Error::InvalidShareIndex(3))
+        ),
         "precomputed variant must reject an out-of-range share index"
     );
 }
@@ -336,7 +343,10 @@ fn deserialized_dkg_params_are_revalidated() {
         .expect("DkgParams deserializes without validation");
 
     // The constructor would have rejected these parameters outright.
-    assert!(ferveo::DkgParams::new(0, 0, SHARES_NUM).is_err());
+    assert!(matches!(
+        ferveo::DkgParams::new(0, 0, SHARES_NUM),
+        Err(Error::InvalidDkgParameters(SHARES_NUM, 0))
+    ));
 
     assert!(
         matches!(
@@ -345,7 +355,7 @@ fn deserialized_dkg_params_are_revalidated() {
                 &params,
                 &validators[0],
             ),
-            Err(Error::InvalidDkgParameters(_, 0))
+            Err(Error::InvalidDkgParameters(SHARES_NUM, 0))
         ),
         "a deserialized DkgParams with threshold 0 must be rejected, not abort \
          the process later"
@@ -372,14 +382,17 @@ fn non_invertible_decryption_key_is_rejected() {
         decryption_key: ferveo::api::Fr::from(0u64),
     };
     assert!(
-        aggregate
-            .create_decryption_share_simple(
+        matches!(
+            aggregate.create_decryption_share_simple(
                 &dkg,
                 &ciphertext.header().unwrap(),
                 AAD,
                 &zero_keypair,
-            )
-            .is_err(),
+            ),
+            Err(Error::ThresholdEncryptionError(
+                ferveo_tdec::Error::InvalidValidatorDecryptionKey
+            ))
+        ),
         "a non-invertible decryption key must be an error, not a panic"
     );
 }
