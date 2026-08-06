@@ -66,5 +66,9 @@ jobs:
       # wire-format tests pinning serialized-artifact compatibility.
       - name: Tests
         run: cargo test --release --workspace
+      # Execute the off-by-default refresh/handover tests too — the clippy
+      # pass in the lint job only compiles them.
+      - name: Tests (experimental-refresh)
+        run: cargo test --release -p ferveo --features experimental-refresh
       - name: Compile benches
         run: cargo bench --no-run --workspace
