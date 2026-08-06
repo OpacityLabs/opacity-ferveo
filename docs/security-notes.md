@@ -94,10 +94,11 @@ or unsound consumption of `σ`.
 
 Identity points satisfy pairing-based validity checks vacuously — `e(𝒪, ·) = 1`
 on both sides of any equation — so every such check must exclude them
-explicitly. Rejections sit on the verification side and, for the DKG public
-key, at ingestion (`from_bytes` / `encrypt`); the wire format itself is
-unchanged — the accept-set at ingestion shrinks only by points honest parties
-never produce. Regression tests live in `ferveo/tests/degenerate_inputs.rs`.
+explicitly. Rejections live at verification and at ingestion — for validator
+encryption keys at `PublicKey::from_bytes` and `Dkg::new`, for the DKG public
+key at `DkgPublicKey::from_bytes` and `encrypt`. None change the wire format —
+the accept-set at ingestion shrinks, and only by points honest parties never
+produce. Regression tests live in `ferveo/tests/degenerate_inputs.rs`.
 
 What the checks enforce:
 
@@ -149,6 +150,23 @@ What the checks enforce:
   an aggregate built from a subset of validators is legitimate (fewer dealers
   than validators is a supported configuration), so no exact-count rule
   applies; which dealer set to expect is the caller's knowledge.
+- **An identity validator encryption key is rejected at ingestion
+  (`PublicKey::from_bytes`, `PubliclyVerifiableDkg::new`) and at verification
+  (`do_verify_full`)** (`ferveo_common`'s `Error::IdentityEncryptionKey`;
+  `Error::IdentityValidatorEncryptionKey` naming the validator). With
+  `ek_i = 𝒪` the dealer's blinded share `Y_i = [f(ω_i)]·ek_i` is the
+  identity, and the per-slot check `e(G, Y_i) == e(A_i, ek_i)` holds
+  vacuously (`1 == 1`) — a verified aggregate can carry a dead slot that can
+  never produce a decryption share, silently reducing the liveness margin
+  (effective `n` shrinks and can drop below `t`). All three boundaries are
+  enforced because `PublicKey` derives serde `Deserialize`, so an identity
+  key can enter a `Validator` without ever passing `from_bytes`: `Dkg::new`
+  screens the set admitted into the protocol, and `do_verify_full` (hence
+  `verify_full`, `verify_aggregation`, and `AggregatedTranscript::verify`,
+  whose validator set comes from the caller's messages without passing
+  through `Dkg::new`) rejects the key wherever a slot is checked. The
+  `experimental-refresh` handover/refresh paths still consume encryption
+  keys without this check; they are feature-gated and unused by consumers.
 - **`CiphertextHeader::check` rejects an identity commitment `U` or auth tag
   `W`** (`Error::CiphertextVerificationFailed`). The §4.4.2 gate
   `e(U, H_G2(U, ciphertext_hash, aad)) · e(-G, W) == 1` held for `U = W = 𝒪`
