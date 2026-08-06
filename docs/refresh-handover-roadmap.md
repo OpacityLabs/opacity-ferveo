@@ -85,9 +85,9 @@ These determine whether the *design* is sound, independent of the gaps above:
 
 1. Answers to the open questions above, written down (extend
    `docs/security-notes.md`), including the multi-dealer σ decision it forces.
-2. Gaps 1–3 closed: enforced (or atomic) validation, commitment update with a
+2. Gaps 1–4 closed: enforced (or atomic) validation, commitment update with a
    test that a refreshed aggregate passes `verify_full`, error returns instead
-   of panics.
+   of panics, and `finalize_handover` rejecting an invalid re-blinded share.
 3. Adversarial tests: forged/mismatched update transcripts, wrong-degree update
    polynomials, nonzero-root "refresh", crafted handover transcripts — all
    rejected with errors, not panics.
