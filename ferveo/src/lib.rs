@@ -114,6 +114,10 @@ pub enum Error {
     #[error("Aggregate public key does not match the committed polynomial")]
     InvalidAggregatePublicKey,
 
+    /// A DKG public key may not be the identity point
+    #[error("Identity DKG public key")]
+    IdentityDkgPublicKey,
+
     /// Too many transcripts received by the DKG
     #[error("Too many transcripts. Expected: {0}, got: {1}")]
     TooManyTranscripts(u32, u32),

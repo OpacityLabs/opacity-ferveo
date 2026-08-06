@@ -112,6 +112,15 @@ pub fn encrypt<E: Pairing>(
     pubkey: &DkgPublicKey<E>,
     rng: &mut impl rand::Rng,
 ) -> Result<Ciphertext<E>> {
+    // An identity public key makes the shared secret e(𝒪, H)^r = 1 in the
+    // target group, so the derived AEAD key is a public constant and the
+    // ciphertext hides nothing. Honest DKGs produce an identity public key
+    // only when the group secret is zero, with negligible probability. See
+    // docs/security-notes.md §2.
+    if pubkey.0.is_zero() {
+        return Err(Error::IdentityDkgPublicKey);
+    }
+
     // r
     let rand_element = E::ScalarField::rand(rng);
     // g
@@ -283,6 +292,20 @@ mod tests {
         let bad: &[u8] = "bad-aad".as_bytes();
 
         assert!(decrypt_symmetric(&ciphertext, bad, &privkey).is_err());
+    }
+
+    #[test]
+    fn encrypt_rejects_identity_pubkey() {
+        use ark_ec::AffineRepr;
+
+        let rng = &mut test_rng();
+        let msg = "my-msg".as_bytes().to_vec();
+        let aad: &[u8] = "my-aad".as_bytes();
+        let pubkey = DkgPublicKey::<E>(ark_bls12_381::G1Affine::zero());
+        assert!(matches!(
+            encrypt::<E>(SecretBox::new(msg), aad, &pubkey, rng),
+            Err(Error::IdentityDkgPublicKey)
+        ));
     }
 
     #[test]

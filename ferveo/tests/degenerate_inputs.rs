@@ -10,8 +10,8 @@ use ark_bls12_381::{G1Affine, G2Affine};
 use ark_ec::AffineRepr;
 use ferveo::{
     api::{
-        encrypt, AggregatedTranscript, Ciphertext, Dkg, SecretBox, Validator,
-        ValidatorKeypair, ValidatorMessage,
+        encrypt, to_bytes, AggregatedTranscript, Ciphertext, Dkg, DkgPublicKey,
+        SecretBox, Validator, ValidatorKeypair, ValidatorMessage,
     },
     Error, EthereumAddress,
 };
@@ -215,6 +215,77 @@ fn trailing_identity_coefficients_are_rejected() {
         ),
         "a commitment padded with trailing identity coefficients must be \
          rejected as the lower degree it actually pins"
+    );
+}
+
+/// The 48-byte compressed encoding of the identity G1 point deserializes as a
+/// legitimate subgroup member, but as a DKG public key it makes every
+/// encryption's shared secret a public constant — silent, total
+/// confidentiality loss. `from_bytes` must reject it; in-protocol an identity
+/// F₀ is already rejected during verification, so this closes the
+/// out-of-band-bytes path.
+#[test]
+fn identity_dkg_public_key_bytes_are_rejected() {
+    let rng = &mut rand::rngs::StdRng::seed_from_u64(6);
+    let (_, validators, messages) = setup(rng);
+    let dkg = Dkg::new(TAU, SHARES_NUM, THRESHOLD, &validators, &validators[0])
+        .unwrap();
+    let aggregate = dkg.aggregate_transcripts(&messages).unwrap();
+
+    // Positive control: an honest public key round-trips through bytes.
+    let honest = aggregate.public_key();
+    let honest_bytes = honest.to_bytes().unwrap();
+    assert_eq!(DkgPublicKey::from_bytes(&honest_bytes).unwrap(), honest);
+
+    let identity_bytes = to_bytes(&G1Affine::zero()).unwrap();
+    assert_eq!(identity_bytes.len(), DkgPublicKey::serialized_size());
+    assert!(
+        matches!(
+            DkgPublicKey::from_bytes(&identity_bytes),
+            Err(Error::IdentityDkgPublicKey)
+        ),
+        "the identity G1 encoding must be rejected as a DKG public key"
+    );
+}
+
+/// `api::DkgPublicKey` derives serde `Deserialize`, so an identity public key
+/// can enter via bincode without ever passing `from_bytes`. `encrypt` is the
+/// last line of defense: encrypting to the identity makes the shared secret
+/// the identity of the target group, so the derived AEAD key is a public
+/// constant.
+#[test]
+fn encrypt_to_identity_dkg_public_key_is_rejected() {
+    let rng = &mut rand::rngs::StdRng::seed_from_u64(7);
+    let (_, validators, messages) = setup(rng);
+    let dkg = Dkg::new(TAU, SHARES_NUM, THRESHOLD, &validators, &validators[0])
+        .unwrap();
+    let aggregate = dkg.aggregate_transcripts(&messages).unwrap();
+
+    // Positive control: encryption to the honest public key succeeds.
+    assert!(encrypt(
+        SecretBox::new(b"the actual message".to_vec()),
+        AAD,
+        &aggregate.public_key(),
+    )
+    .is_ok());
+
+    let identity_inner: ferveo_tdec::DkgPublicKey<ferveo::api::E> =
+        ferveo_tdec::DkgPublicKey(G1Affine::zero());
+    let smuggled: DkgPublicKey =
+        bincode::deserialize(&bincode::serialize(&identity_inner).unwrap())
+            .expect("the identity public key should still deserialize");
+    assert!(
+        matches!(
+            encrypt(
+                SecretBox::new(b"the actual message".to_vec()),
+                AAD,
+                &smuggled,
+            ),
+            Err(Error::ThresholdEncryptionError(
+                ferveo_tdec::Error::IdentityDkgPublicKey
+            ))
+        ),
+        "encrypt must reject the identity DKG public key"
     );
 }
 
