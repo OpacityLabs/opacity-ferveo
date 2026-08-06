@@ -25,7 +25,7 @@ ark-serialize = { workspace = true }
 ark-std = { workspace = true }
 bincode = { workspace = true }
 ferveo-common = { path = "../ferveo-common" }
-ferveo-tdec = { path = "../ferveo-tdec", features = ["api", "test-common"] }
+ferveo-tdec = { path = "../ferveo-tdec", features = ["api"] }
 hex = { workspace = true }
 itertools = { workspace = true }
 rand = { workspace = true }
@@ -39,6 +39,7 @@ generic-array = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
+ferveo-tdec = { path = "../ferveo-tdec", features = ["test-common"] }
 sha2 = { workspace = true }
 test-case = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
