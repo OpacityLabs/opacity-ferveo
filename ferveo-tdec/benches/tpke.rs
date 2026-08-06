@@ -100,7 +100,6 @@ pub fn bench_create_decryption_share(c: &mut Criterion) {
             let setup = SetupSimple::new(shares_num, msg_size, rng);
             move || {
                 black_box({
-                    // TODO: Consider running benchmarks for a single iteration and not for all iterations.
                     // This way we could test the performance of this method for a single participant.
                     setup
                         .contexts
@@ -317,111 +316,6 @@ pub fn bench_decryption_share_validity_checks(c: &mut Criterion) {
     }
 }
 
-// TODO: Relocate benchmark to ferveo/benches as part of #162, #163
-// pub fn bench_recover_share_at_point(c: &mut Criterion) {
-//     let mut group = c.benchmark_group("RECOVER SHARE");
-//     let rng = &mut StdRng::seed_from_u64(0);
-//     let msg_size = MSG_SIZE_CASES[0];
-
-//     for &shares_num in NUM_SHARES_CASES.iter() {
-//         let mut setup = SetupSimple::new(shares_num, msg_size, rng);
-//         let threshold = setup.shared.threshold;
-//         let selected_participant = setup.contexts.pop().unwrap();
-//         let x_r = selected_participant
-//             .public_decryption_contexts
-//             .last()
-//             .unwrap()
-//             .domain;
-//         let mut remaining_participants = setup.contexts;
-//         for p in &mut remaining_participants {
-//             p.public_decryption_contexts.pop();
-//         }
-//         let domain_points = &remaining_participants[0]
-//             .public_decryption_contexts
-//             .iter()
-//             .map(|ctxt| ctxt.domain)
-//             .collect::<Vec<_>>();
-//         let h = remaining_participants[0].public_decryption_contexts[0].h;
-//         let share_updates = remaining_participants
-//             .iter()
-//             .map(|p| {
-//                 let deltas_i = prepare_share_updates_for_recovery::<E>(
-//                     domain_points,
-//                     &h,
-//                     &x_r,
-//                     threshold,
-//                     rng,
-//                 );
-//                 (p.index, deltas_i)
-//             })
-//             .collect::<HashMap<_, _>>();
-//         let new_share_fragments: Vec<_> = remaining_participants
-//             .iter()
-//             .map(|p| {
-//                 // Current participant receives updates from other participants
-//                 let updates_for_participant: Vec<_> = share_updates
-//                     .values()
-//                     .map(|updates| *updates.get(p.index).unwrap())
-//                     .collect();
-
-//                 // And updates their share
-//                 apply_updates_to_private_share::<E>(
-//                     &p.private_key_share,
-//                     &updates_for_participant,
-//                 )
-//             })
-//             .collect();
-//         group.bench_function(
-//             BenchmarkId::new(
-//                 "recover_share_from_updated_private_shares",
-//                 shares_num,
-//             ),
-//             |b| {
-//                 b.iter(|| {
-//                     let _ = black_box(
-//                         recover_share_from_updated_private_shares::<E>(
-//                             &x_r,
-//                             domain_points,
-//                             &new_share_fragments,
-//                         ),
-//                     );
-//                 });
-//             },
-//         );
-//     }
-// }
-
-// TODO: Relocate benchmark to ferveo/benches as part of #162, #163
-// pub fn bench_refresh_shares(c: &mut Criterion) {
-//     let mut group = c.benchmark_group("REFRESH SHARES");
-//     let rng = &mut StdRng::seed_from_u64(0);
-//     let msg_size = MSG_SIZE_CASES[0];
-
-//     for &shares_num in NUM_SHARES_CASES.iter() {
-//         let setup = SetupSimple::new(shares_num, msg_size, rng);
-//         let threshold = setup.shared.threshold;
-//         let polynomial = create_random_polynomial_with_root::<E>(
-//             threshold - 1,
-//             &Fr::zero(),
-//             rng,
-//         );
-//         let p = setup.contexts[0].clone();
-//         group.bench_function(
-//             BenchmarkId::new("refresh_private_key_share", shares_num),
-//             |b| {
-//                 b.iter(|| {
-//                     black_box(refresh_private_key_share::<E>(
-//                         &p.setup_params.h.into_group(),
-//                         &p.public_decryption_contexts[0].domain,
-//                         &polynomial,
-//                         &p.private_key_share,
-//                     ));
-//                 });
-//             },
-//         );
-//     }
-// }
-
 criterion_group!(
     benches,
     bench_create_decryption_share,
@@ -430,8 +324,6 @@ criterion_group!(
     bench_share_encrypt_decrypt,
     bench_ciphertext_validity_checks,
     bench_decryption_share_validity_checks,
-    // bench_recover_share_at_point,
-    // bench_refresh_shares,
 );
 
 criterion_main!(benches);

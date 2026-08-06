@@ -46,8 +46,6 @@ pub fn save_data(
         .unwrap();
 }
 
-// TODO: Find a way to deduplicate the following methods with benchmarks and test setup
-
 fn gen_keypairs(num: u32) -> Vec<ferveo_common::Keypair<EllipticCurve>> {
     let rng = &mut ark_std::test_rng();
     (0..num)

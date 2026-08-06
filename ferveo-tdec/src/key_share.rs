@@ -9,7 +9,7 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::{
     prepare_combine_simple, CiphertextHeader, DecryptionSharePrecomputed,
-    DecryptionShareSimple, DomainPoint, Result,
+    DecryptionShareSimple, DomainPoint, Error, Result,
 };
 
 #[serde_as]
@@ -24,8 +24,6 @@ pub struct ShareCommitment<E: Pairing>(
     #[serde_as(as = "serialization::SerdeAs")] pub E::G1Affine, // A_{i, \omega_i}
 );
 
-// TODO: Improve by adding share commitment here
-// TODO: Is this a test utility perhaps?
 #[derive(Debug, Copy, Clone)]
 pub struct BlindedKeyShare<E: Pairing> {
     pub validator_public_key: E::G2Affine, // [b] H
@@ -33,34 +31,6 @@ pub struct BlindedKeyShare<E: Pairing> {
 }
 
 impl<E: Pairing> BlindedKeyShare<E> {
-    // TODO: Salvage and cleanup - #197
-    // pub fn verify_blinding<R: RngCore>(
-    //     &self,
-    //     public_key: &PublicKey<E>,
-    //     rng: &mut R,
-    // ) -> bool {
-    //     let g = E::G1Affine::generator();
-    //     let alpha = E::ScalarField::rand(rng);
-
-    //     let alpha_a =
-    //         E::G1Prepared::from(g + public_key.0.mul(alpha).into_affine());
-
-    //     // \sum_i(Y_i)
-    //     let alpha_z = E::G2Prepared::from(
-    //         self.blinding_key + self.blinded_key_share.mul(alpha).into_affine(),
-    //     );
-
-    //     // e(g, Yi) == e(Ai, [b] H)
-    //     let g_inv = E::G1Prepared::from(-g.into_group());
-    //     E::multi_pairing([g_inv, alpha_a], [alpha_z, self.blinding_key.into()])
-    //         .0
-    //         == E::TargetField::one()
-    // }
-
-    // pub fn multiply_by_omega_inv(&mut self, omega_inv: &E::ScalarField) {
-    //     self.blinded_key_share =
-    //         self.blinded_key_share.mul(-*omega_inv).into_affine();
-    // }
     pub fn unblind(
         &self,
         validator_keypair: &Keypair<E>,
@@ -68,7 +38,7 @@ impl<E: Pairing> BlindedKeyShare<E> {
         let unblinding_factor = validator_keypair
             .decryption_key
             .inverse()
-            .expect("Validator decryption key must have an inverse");
+            .ok_or(Error::InvalidValidatorDecryptionKey)?;
         Ok(PrivateKeyShare::<E>(
             self.blinded_key_share.mul(unblinding_factor).into_affine(),
         ))
@@ -126,16 +96,19 @@ impl<E: Pairing> BlindedKeyShare<E> {
                 (*share_index, adjusted_share_index)
             })
             .collect::<HashMap<u32, usize>>();
-        let adjusted_share_index =
-            *sorted_share_indices.get(&share_index).unwrap();
+        let adjusted_share_index = *sorted_share_indices
+            .get(&share_index)
+            .ok_or(Error::InvalidShareIndex(share_index))?;
 
-        // Finally, pick the lagrange coefficient for the current share index
+        // Finally, pick the lagrange coefficient for the current share index.
+        // The index came from `enumerate` over a vector of the same length, so
+        // it is in bounds by construction.
         let lagrange_coeff = &lagrange_coeffs[adjusted_share_index];
-        let private_key_share = self.unblind(validator_keypair);
+        let private_key_share = self.unblind(validator_keypair)?;
         DecryptionSharePrecomputed::create(
             share_index as usize,
             &validator_keypair.decryption_key,
-            &private_key_share.unwrap(),
+            &private_key_share,
             ciphertext_header,
             aad,
             lagrange_coeff,

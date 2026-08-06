@@ -1,5 +1,6 @@
 use std::{collections::HashMap, fmt, io};
 
+use ark_ec::AffineRepr;
 use ark_poly::{EvaluationDomain, GeneralEvaluationDomain};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ferveo_common::serialization;
@@ -130,7 +131,7 @@ pub struct DkgPublicKey(
     pub(crate) ferveo_tdec::DkgPublicKey<E>,
 );
 
-// TODO: Consider moving these implementation details to ferveo_tdec::DkgPublicKey - #197
+// TODO: Consider moving these implementation details to ferveo_tdec::DkgPublicKey
 impl DkgPublicKey {
     pub fn to_bytes(&self) -> Result<GenericArray<u8, U48>> {
         let as_bytes = to_bytes(&self.0 .0)?;
@@ -147,6 +148,14 @@ impl DkgPublicKey {
                     )
                 })?;
         let pk: G1Affine = from_bytes(&bytes)?;
+        // Arkworks' validating deserialization accepts the identity as a
+        // legitimate subgroup member, but encrypting to it would make every
+        // shared secret a public constant. Honest DKGs produce an identity
+        // public key only with negligible probability. See
+        // docs/security-notes.md §2.
+        if pk.is_zero() {
+            return Err(Error::IdentityDkgPublicKey);
+        }
         Ok(DkgPublicKey(ferveo_tdec::DkgPublicKey(pk)))
     }
 
@@ -155,7 +164,7 @@ impl DkgPublicKey {
     }
 }
 
-// TODO: Consider if FieldPoint should be removed - #197
+// TODO: Consider if FieldPoint should be removed
 #[serde_as]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FieldPoint(#[serde_as(as = "serialization::SerdeAs")] pub Fr);
@@ -266,6 +275,12 @@ impl AggregatedTranscript {
         security_threshold: u32,
         messages: &[ValidatorMessage],
     ) -> Result<bool> {
+        // With zero messages every per-validator and aggregation-sum check
+        // below is vacuously true, so an all-identity aggregate would verify.
+        // See docs/security-notes.md §2.
+        if messages.is_empty() {
+            return Err(Error::NoTranscriptsToVerify);
+        }
         if validators_num < messages.len() as u32 {
             return Err(Error::InvalidAggregateVerificationParameters(
                 validators_num,
@@ -279,6 +294,19 @@ impl AggregatedTranscript {
         let is_valid_optimistic = self.0.aggregate.verify_optimistic();
         if !is_valid_optimistic {
             return Err(Error::InvalidTranscriptAggregate);
+        }
+
+        // The public key travels as its own serialized field, bound to the
+        // committed polynomial only at construction — a deserialized aggregate
+        // could carry any point there. See docs/security-notes.md §2.
+        let f_0 = self
+            .0
+            .aggregate
+            .coeffs
+            .first()
+            .ok_or(Error::InvalidTranscriptAggregate)?;
+        if self.0.public_key.0 != *f_0 {
+            return Err(Error::InvalidAggregatePublicKey);
         }
 
         let validators: Vec<_> = messages
@@ -358,7 +386,7 @@ impl AggregatedTranscript {
         update_transcripts: &HashMap<u32, RefreshTranscript>,
         validator_keys_map: &HashMap<u32, ValidatorPublicKey>,
     ) -> Result<Self> {
-        // TODO: Aggregates structs should be refactored, this is a bit of a mess - #162
+        // TODO: Aggregates structs should be refactored, this is a bit of a mess
         let updated_aggregate = self
             .0
             .aggregate
@@ -381,7 +409,7 @@ impl AggregatedTranscript {
             .aggregate
             .finalize_handover(&handover_transcript.0, validator_keypair)
             .unwrap();
-        // TODO: Aggregates structs should be refactored, this is a bit of a mess - #162
+        // TODO: Aggregates structs should be refactored, this is a bit of a mess
         let eeww =
             crate::AggregatedTranscript::<E>::from_aggregate(new_aggregate)
                 .unwrap();
@@ -432,7 +460,6 @@ mod test_ferveo_api {
     type TestInputs =
         (Vec<ValidatorMessage>, Vec<Validator>, Vec<ValidatorKeypair>);
 
-    // TODO: validators_num - #197
     fn make_test_inputs(
         rng: &mut StdRng,
         tau: u32,
@@ -494,7 +521,7 @@ mod test_ferveo_api {
         shares_num: u32,
         security_threshold: u32,
     ) {
-        let validators_num = shares_num; // TODO: #197
+        let validators_num = shares_num;
         let rng = &mut StdRng::seed_from_u64(0);
         let (messages, validators, validator_keypairs) = make_test_inputs(
             rng,
@@ -603,7 +630,7 @@ mod test_ferveo_api {
     #[test_case(30, 30; "N is not a power of 2, t=N")]
     fn test_server_api_tdec_simple(shares_num: u32, security_threshold: u32) {
         let rng = &mut StdRng::seed_from_u64(0);
-        let validators_num: u32 = shares_num; // TODO: #197
+        let validators_num: u32 = shares_num;
         let (messages, validators, validator_keypairs) = make_test_inputs(
             rng,
             TAU,
@@ -694,7 +721,7 @@ mod test_ferveo_api {
         security_threshold: u32,
     ) {
         let rng = &mut StdRng::seed_from_u64(0);
-        let validators_num: u32 = shares_num; // TODO: #197
+        let validators_num: u32 = shares_num;
         let (messages, validators, _) = make_test_inputs(
             rng,
             TAU,
@@ -818,7 +845,7 @@ mod test_ferveo_api {
         security_threshold: u32,
     ) {
         let rng = &mut StdRng::seed_from_u64(0);
-        let validators_num: u32 = shares_num; // TODO: #197
+        let validators_num: u32 = shares_num;
         let (messages, _, _) = make_test_inputs(
             rng,
             TAU,
@@ -896,7 +923,6 @@ mod test_ferveo_api {
         ));
     }
 
-    // TODO: validators_num #197
     #[cfg(feature = "experimental-refresh")]
     fn make_share_update_test_inputs(
         shares_num: u32,
@@ -978,7 +1004,7 @@ mod test_ferveo_api {
         security_threshold: u32,
     ) {
         let rng = &mut StdRng::seed_from_u64(0);
-        let validators_num: u32 = shares_num; // TODO: #197
+        let validators_num: u32 = shares_num;
         let (
             messages,
             _validators,

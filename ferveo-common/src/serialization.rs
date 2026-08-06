@@ -88,9 +88,6 @@ where
     }
 }
 
-// TODO: Trait aliases are experimental
-// trait ByteSerializable = ToBytes + FromBytes;
-
 pub trait ToBytes {
     fn to_bytes(&self) -> Result<Vec<u8>, bincode::Error>;
 }

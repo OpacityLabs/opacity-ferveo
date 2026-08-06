@@ -44,18 +44,8 @@ use crate::{batch_to_projective_g1, Error, Result};
 type InnerBlindedKeyShare<E> = ferveo_tdec::BlindedKeyShare<E>;
 
 /// Blinded key share held by a participant in the DKG protocol
-// TODO: What about the commented macros?
-#[derive(
-    Debug,
-    Clone, //PartialEq, Eq, ZeroizeOnDrop, Serialize, Deserialize,
-)]
-pub struct UpdatableBlindedKeyShare<E: Pairing>(
-    // #[serde(bound(
-    //     serialize = "ferveo_tdec::PrivateKeyShare<E>: Serialize",
-    //     deserialize = "ferveo_tdec::PrivateKeyShare<E>: DeserializeOwned"
-    // ))]
-    pub InnerBlindedKeyShare<E>,
-);
+#[derive(Debug, Clone)]
+pub struct UpdatableBlindedKeyShare<E: Pairing>(pub InnerBlindedKeyShare<E>);
 
 impl<E: Pairing> UpdatableBlindedKeyShare<E> {
     pub fn new(blinded_key_share: InnerBlindedKeyShare<E>) -> Self {
@@ -192,7 +182,7 @@ pub struct ShareUpdate<E: Pairing> {
 }
 
 impl<E: Pairing> ShareUpdate<E> {
-    // TODO: Use multipairings? - #192
+    // TODO: Use multipairings?
     // TODO: Unit tests
     pub fn verify(
         &self,
@@ -233,7 +223,6 @@ impl<E: Pairing> UpdateTranscript<E> {
             threshold,
             rng,
         )
-        // TODO: Cast return elements into ShareRefreshUpdate - #193
     }
 
     // Shared verifier for update transcripts, parametrized by the polynomial
@@ -280,7 +269,6 @@ impl<E: Pairing> UpdateTranscript<E> {
             // TODO: Check remaining are not zero? Only if we disallow producing zero coeffs
         } else {
             // Recovery
-            // TODO: There's probably a much better way to do this
             let mut reverse_coeffs = self.coeffs.iter().rev();
             let mut acc: E::G1Affine = *reverse_coeffs.next().unwrap();
             for &coeff in reverse_coeffs {
@@ -290,7 +278,6 @@ impl<E: Pairing> UpdateTranscript<E> {
             assert!(acc.is_zero());
         }
 
-        // TODO: Handle errors properly
         Ok(true)
     }
 
@@ -432,7 +419,7 @@ impl<E: Pairing> HandoverTranscript<E> {
 /// This is a helper function for `ShareUpdate::create_share_updates_for_recovery` and `ShareUpdate::create_share_updates_for_refresh`
 /// It generates a new random polynomial with a defined root and evaluates it at each of the participants' indices.
 /// The result is a map of share updates.
-// TODO: Use newtype type for (DomainPoint<E>, PublicKey<E>) - #162
+// TODO: Use newtype type for (DomainPoint<E>, PublicKey<E>)
 fn prepare_share_updates_with_root<E: Pairing>(
     domain_points_and_keys: &HashMap<u32, (DomainPoint<E>, PublicKey<E>)>,
     root: &DomainPoint<E>,
@@ -453,7 +440,6 @@ fn prepare_share_updates_with_root<E: Pairing>(
         .map(|(share_index, tuple)| {
             let (x_i, pubkey_i) = tuple;
             let eval = update_poly.evaluate(x_i);
-            // TODO: Reconsider coordinates representation #195
             let update =
                 E::G2::from(pubkey_i.encryption_key).mul(eval).into_affine();
             let commitment = g.mul(eval).into_affine();
@@ -594,7 +580,6 @@ mod tests_refresh {
             .collect::<HashMap<u32, UpdateTranscript<E>>>();
 
         // Participants validate first all the update transcripts.
-        // TODO: Find a better way to ensure they're always validated
         for update_transcript in update_transcripts_by_producer.values() {
             update_transcript
                 .verify_refresh(validator_keys_map, &fft_domain)

@@ -37,20 +37,35 @@ impl DkgParams {
         security_threshold: u32,
         shares_num: u32,
     ) -> Result<Self> {
-        if shares_num < security_threshold
-            || shares_num == 0
-            || security_threshold == 0
-        {
-            return Err(Error::InvalidDkgParameters(
-                shares_num,
-                security_threshold,
-            ));
-        }
-        Ok(Self {
+        let params = Self {
             tau,
             security_threshold,
             shares_num,
-        })
+        };
+        params.validate()?;
+        Ok(params)
+    }
+
+    /// Re-check the invariants `new` enforces.
+    ///
+    /// `DkgParams` derives `Deserialize`, which reconstructs it field by field
+    /// and so bypasses `new` entirely. Anything accepting a `DkgParams` from
+    /// outside must call this. A zero security threshold is the dangerous case:
+    /// `PubliclyVerifiableSS::new` computes `security_threshold - 1`, and
+    /// because release builds have overflow checks off it wraps to `u32::MAX`
+    /// and the resulting allocation aborts the process — an abort, not an
+    /// unwindable panic, so no caller can catch it.
+    pub fn validate(&self) -> Result<()> {
+        if self.shares_num < self.security_threshold
+            || self.shares_num == 0
+            || self.security_threshold == 0
+        {
+            return Err(Error::InvalidDkgParameters(
+                self.shares_num,
+                self.security_threshold,
+            ));
+        }
+        Ok(())
     }
 
     pub fn tau(&self) -> u32 {
@@ -71,9 +86,6 @@ pub type ValidatorsByAddress<E> = BTreeMap<EthereumAddress, Validator<E>>;
 pub type PVSSMap<E> = BTreeMap<EthereumAddress, PubliclyVerifiableSS<E>>;
 
 /// The DKG context that holds all the local state for participating in the DKG
-// TODO: Consider removing Clone to avoid accidentally NOT-mutating state.
-//  Currently, we're assuming that the DKG is only mutated by the owner of the instance.
-//  Consider removing Clone after finalizing ferveo::api
 #[derive(Clone, Debug)]
 pub struct PubliclyVerifiableDkg<E: Pairing> {
     pub dkg_params: DkgParams,
@@ -94,7 +106,23 @@ impl<E: Pairing> PubliclyVerifiableDkg<E> {
         dkg_params: &DkgParams,
         me: &Validator<E>,
     ) -> Result<Self> {
+        // `dkg_params` may have been deserialized rather than built by
+        // `DkgParams::new`, which would skip its validity check.
+        dkg_params.validate()?;
+
         assert_no_share_duplicates(validators)?;
+
+        // Share indices address the evaluation domain positionally: domain
+        // points and the domain-point map are built as 0..validators.len().
+        // Combined with the duplicate check above, requiring every index to be
+        // in range makes the set exactly {0, ..., n-1} (any permutation), which
+        // is what the rest of the protocol assumes. Without this, an
+        // out-of-range index panics later while indexing evaluations.
+        for validator in validators {
+            if validator.share_index as usize >= validators.len() {
+                return Err(Error::InvalidShareIndex(validator.share_index));
+            }
+        }
 
         let domain = ark_poly::GeneralEvaluationDomain::<E::ScalarField>::new(
             validators.len(),
@@ -177,7 +205,6 @@ impl<E: Pairing> PubliclyVerifiableDkg<E> {
             .collect::<HashMap<u32, DomainPoint<E>>>()
     }
 
-    // TODO: Revisit naming later
     /// Return a map of domain points for the DKG
     pub fn domain_and_key_map(
         &self,
@@ -228,7 +255,7 @@ impl<E: Pairing> PubliclyVerifiableDkg<E> {
     }
 
     // Returns a new refresh transcript for current validators in DKG
-    // TODO: Allow to pass a parameter to restrict target validators - #199
+    // TODO: Allow to pass a parameter to restrict target validators
     #[cfg(feature = "experimental-refresh")]
     pub fn generate_refresh_transcript<R: RngCore>(
         &self,
@@ -364,7 +391,7 @@ mod test_dealing {
         )
         .unwrap();
 
-        // DKG should keep the original validators indices, as passed from the constructor. See issue #204
+        // DKG should keep the original validators indices, as passed from the constructor.
         for validator in validators.iter() {
             let validator_in_dkg =
                 dkg.validators.get(&validator.share_index).unwrap();

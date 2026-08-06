@@ -52,6 +52,14 @@ pub enum Error {
     #[error("Invalid transcript degree: expected {0} coefficients (security threshold), got {1}")]
     InvalidTranscriptDegree(u32, u32),
 
+    /// A transcript or aggregate carries no polynomial commitments at all
+    #[error("Transcript carries no polynomial commitments")]
+    EmptyTranscript,
+
+    /// Transcripts being aggregated do not all have the same shape
+    #[error("Mismatched transcript {0}: expected {1}, got {2}")]
+    MismatchedTranscriptLengths(&'static str, u32, u32),
+
     /// The validator public key doesn't match the one in the DKG
     #[error("Validator public key mismatch")]
     ValidatorPublicKeyMismatch,
@@ -94,9 +102,21 @@ pub enum Error {
     #[error("No transcripts to aggregate")]
     NoTranscriptsToAggregate,
 
+    /// Verifying an aggregate requires at least one transcript message
+    #[error("No transcripts to verify the aggregate against")]
+    NoTranscriptsToVerify,
+
     /// The number of messages may not be greater than the number of validators
     #[error("Invalid aggregate verification parameters: number of validators {0}, number of messages: {1}")]
     InvalidAggregateVerificationParameters(u32, u32),
+
+    /// The aggregate's public key must equal its committed polynomial's constant term
+    #[error("Aggregate public key does not match the committed polynomial")]
+    InvalidAggregatePublicKey,
+
+    /// A DKG public key may not be the identity point
+    #[error("Identity DKG public key")]
+    IdentityDkgPublicKey,
 
     /// Too many transcripts received by the DKG
     #[error("Too many transcripts. Expected: {0}, got: {1}")]
@@ -192,7 +212,7 @@ mod test_dkg_full {
     #[test_case(30, 30; "N is not a power of 2, t=N")]
     fn test_dkg_simple_tdec(shares_num: u32, security_threshold: u32) {
         let rng = &mut test_rng();
-        let validators_num = shares_num; // TODO: #197
+        let validators_num = shares_num;
         let (dkg, validator_keypairs, messages) =
             setup_dealt_dkg_with_n_validators(
                 security_threshold,
@@ -243,7 +263,7 @@ mod test_dkg_full {
         security_threshold: u32,
     ) {
         let rng = &mut test_rng();
-        let validators_num = shares_num; // TODO: #197
+        let validators_num = shares_num;
         let (dkg, validator_keypairs, messages) =
             setup_dealt_dkg_with_n_transcript_dealt(
                 security_threshold,
@@ -503,7 +523,6 @@ mod test_dkg_full {
         // Order of decryption shares is not important, but since we are using low-level
         // API here to performa a refresh for testing purpose, we will not shuffle
         // the shares this time
-        // decryption_shares.shuffle(rng);
 
         let lagrange = ferveo_tdec::prepare_combine_simple::<E>(
             &dkg.domain_points()[..security_threshold as usize],
@@ -524,12 +543,6 @@ mod test_dkg_full {
         let rng = &mut test_rng();
         let (dkg, validator_keypairs, messages) =
             setup_dealt_dkg_with(security_threshold, shares_num);
-
-        // // TODO: Auxiliary debugging for validator keypairs. See issue below -- #203
-        // for (i, v) in validator_keypairs.iter().enumerate() {
-        //     println!("Validator {:?}: {:?}", i, v.public_key());
-        // }
-        // //
 
         let transcripts = messages
             .iter()
@@ -567,12 +580,12 @@ mod test_dkg_full {
 
         // Let's choose a random validator to handover
         let handover_slot_index = rng.gen_range(0..shares_num);
-        // TODO: #203 Investigate why if we move this line after the next one (i.e. after generating a random keypair),
-        // the keypair produced is repeated from the initial validator keypairs. This only fails for the N=4 case (wtf?)
+        // Do not reorder: drawing the handover index before the keypair keeps
+        // the deterministic test RNG stream from re-deriving one of the
+        // validator keypairs above (observed at N=4).
 
         // New participant that will receive the handover
         let incoming_validator_keypair = Keypair::<E>::new(rng);
-        // println!("Validator {:?}*: {:?}", handover_slot_index, incoming_validator_keypair.public_key());
 
         // TODO: Rewrite this test so that the offboarding of validator
         // is done by recreating a DKG instance with a new set of
