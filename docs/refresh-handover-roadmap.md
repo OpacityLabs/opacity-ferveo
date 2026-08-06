@@ -52,6 +52,11 @@ Tracked in the `refresh.rs` module docs; summarized:
    commitments (`F_j ← F_j + Σ_p C_{p,j}`) — correctness unconfirmed.
 3. **Robustness**: validation failures panic (`assert!`/`unwrap()`) instead of
    returning errors; an invalid update from a peer is currently a crash.
+4. **Handover share validation**: `finalize_handover` calls
+   `verify_validator_share(...)?`, which propagates only the `Err` arm — an
+   `Ok(false)` ("share invalid") result is silently discarded, so an invalid
+   re-blinded share would still be installed into the post-handover
+   aggregate. Contrast `do_verify_full`, which checks the boolean.
 
 ## Open cryptographic questions (require a cryptographer)
 
