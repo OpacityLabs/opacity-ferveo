@@ -2,11 +2,13 @@
 
 ## Test Command
 
-- Run tests through `mise test` (= `cargo test --release --workspace`).
+- Run tests through `mise test` (= `cargo test --release --workspace`,
+  then the same for `-p ferveo --features experimental-refresh`).
   Release mode matters: the suite runs full DKG ceremonies and takes many
   times longer in debug.
-- Lint gate before any commit: `mise lint` (rustfmt check + clippy
-  `--workspace --all-targets -- -D warnings`). CI enforces both.
+- Lint gate before any commit: `mise lint` (rustfmt check, clippy
+  `-D warnings` in both feature configs, cargo-machete). Mirrors CI's
+  lint job exactly.
 
 ## Conventions
 
