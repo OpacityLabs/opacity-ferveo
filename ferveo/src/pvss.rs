@@ -7,9 +7,11 @@ use ark_poly::{
     EvaluationDomain, Polynomial,
 };
 use ferveo_common::{serialization, Keypair, PublicKey};
+#[cfg(feature = "experimental-refresh")]
+use ferveo_tdec::ShareCommitment;
 use ferveo_tdec::{
     BlindedKeyShare, CiphertextHeader, DecryptionSharePrecomputed,
-    DecryptionShareSimple, DomainPoint, ShareCommitment,
+    DecryptionShareSimple, DomainPoint,
 };
 use itertools::Itertools;
 use rand::RngCore;
@@ -20,9 +22,10 @@ use zeroize::{self, Zeroize, ZeroizeOnDrop};
 
 use crate::{
     assert_no_share_duplicates, batch_to_projective_g1, batch_to_projective_g2,
-    Error, HandoverTranscript, PubliclyVerifiableDkg, Result,
-    UpdatableBlindedKeyShare, UpdateTranscript, Validator,
+    Error, PubliclyVerifiableDkg, Result, Validator,
 };
+#[cfg(feature = "experimental-refresh")]
+use crate::{HandoverTranscript, UpdatableBlindedKeyShare, UpdateTranscript};
 
 /// Marker struct for unaggregated PVSS transcripts
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -136,7 +139,7 @@ impl<E: Pairing, T> PubliclyVerifiableSS<E, T> {
             .values()
             .map(|validator| {
                 // ek_{i}^{eval_i}, i = validator index
-                // TODO: Replace with regular, single-element exponentiation - #195
+                // TODO: Replace with regular, single-element exponentiation
                 fast_multiexp(
                     // &evals.evals[i..i] = &evals.evals[i]
                     &[evals[validator.share_index as usize]], // one share per validator
@@ -151,9 +154,17 @@ impl<E: Pairing, T> PubliclyVerifiableSS<E, T> {
             ));
         }
 
-        // TODO: Cross check proof of knowledge check with the whitepaper; this check proves that there is a relationship between the secret and the pvss transcript - #201
-        // Sigma is a proof of knowledge of the secret, sigma = h^s
-        let sigma = E::G2Affine::generator().mul(*s).into(); // TODO: Use hash-to-curve here? This can break compatibility - #195
+        // Sigma is a proof of knowledge of the secret, sigma = h^s, where h is
+        // the fixed G2 generator.
+        //
+        // WIRE FORMAT — DO NOT CHANGE. `sigma` is serialized into every PVSS
+        // transcript and is pinned by the golden vectors in
+        // `ferveo/tests/wire_format.rs`. Deriving the base point via
+        // hash-to-curve (instead of the fixed generator) would change every
+        // transcript on the wire and break compatibility with already-deployed
+        // artifacts. The old "use hash-to-curve here?" note (upstream #195) is a
+        // trap: it is intentionally not done.
+        let sigma = E::G2Affine::generator().mul(*s).into();
         let vss = Self {
             coeffs,
             shares,
@@ -165,18 +176,35 @@ impl<E: Pairing, T> PubliclyVerifiableSS<E, T> {
 
     /// Verify the pvss transcript from a validator. This is not the full check,
     /// i.e. we optimistically do not check the commitment. This is deferred
-    /// until the aggregation step
+    /// until the aggregation step.
+    ///
+    /// This is the sole verifier of the proof-of-knowledge `sigma`; its
+    /// soundness rests on an AGM/KOE assumption. See `docs/security-notes.md`.
     pub fn verify_optimistic(&self) -> bool {
+        // A transcript with no commitments carries no F_0 to check the proof of
+        // knowledge against, so it cannot be valid. Deserialized transcripts are
+        // peer-supplied, so this must not index blindly.
+        let Some(f_0) = self.coeffs.first() else {
+            return false;
+        };
+        // An identity constant term satisfies the pairing equation vacuously
+        // (e(𝒪, G₂) == e(G₁, 𝒪)). A single dealer produces one only from a
+        // zero secret (negligible probability), but an aggregate's constant
+        // term is the sum of dealer terms, which colluding dealers can drive
+        // to the identity deliberately. See docs/security-notes.md §2.
+        if f_0.is_zero() {
+            return false;
+        }
         // We're only checking the proof of knowledge here, sigma ?= h^s
         // "Does the first coefficient of the secret polynomial match the proof of knowledge?"
         E::pairing(
-            self.coeffs[0].into_group(), // F_0 = g^s
+            f_0.into_group(), // F_0 = g^s
             E::G2::generator(),
         ) == E::pairing(
             E::G1::generator(),
             self.sigma, // h^s
         )
-        // TODO: multipairing? - Issue #192
+        // TODO: multipairing?
     }
 
     /// Part of checking the validity of an aggregated PVSS transcript
@@ -188,7 +216,13 @@ impl<E: Pairing, T> PubliclyVerifiableSS<E, T> {
     /// function may also be used for that purpose.
     pub fn verify_full(&self, dkg: &PubliclyVerifiableDkg<E>) -> Result<bool> {
         let validators = dkg.validators.values().cloned().collect::<Vec<_>>();
-        do_verify_full(&self.coeffs, &self.shares, &validators, &dkg.domain)
+        do_verify_full(
+            &self.coeffs,
+            &self.shares,
+            &validators,
+            &dkg.domain,
+            dkg.dkg_params.security_threshold(),
+        )
     }
 }
 
@@ -209,8 +243,12 @@ pub fn verify_validator_share<E: Pairing>(
     share_index: usize,
     validator_public_key: PublicKey<E>,
 ) -> Result<bool> {
-    // TODO: Check #3 is missing
-    // See #3 in 4.2.3 section of https://eprint.iacr.org/2022/898.pdf
+    // Whitepaper check #3 (4.2.3 of https://eprint.iacr.org/2022/898.pdf) is
+    // covered elsewhere: its degree-bound content is enforced in
+    // `do_verify_full` (see `Error::InvalidTranscriptDegree`), and its
+    // commitment-consistency content is structural here, because the verifier
+    // derives the share commitments itself as A = FFT(F) rather than trusting
+    // dealer-supplied values (see `get_share_commitments_from_poly_commitments`).
     let y_i = pvss_encrypted_shares
         .get(share_index)
         .ok_or(Error::InvalidShareIndex(share_index as u32))?;
@@ -222,7 +260,7 @@ pub fn verify_validator_share<E: Pairing>(
     // We verify that e(G, Y_i) = e(A_i, ek_i) for validator i
     // See #4 in 4.2.3 section of https://eprint.iacr.org/2022/898.pdf
     // e(G,Y) = e(A, ek)
-    // TODO: consider using multipairing - Issue #192
+    // TODO: consider using multipairing
     let is_valid =
         E::pairing(E::G1::generator(), *y_i) == E::pairing(*a_i, ek_i);
     Ok(is_valid)
@@ -234,8 +272,57 @@ pub fn do_verify_full<E: Pairing>(
     pvss_encrypted_shares: &[E::G2Affine],
     validators: &[Validator<E>],
     domain: &ark_poly::GeneralEvaluationDomain<E::ScalarField>,
+    security_threshold: u32,
 ) -> Result<bool> {
     assert_no_share_duplicates(validators)?;
+
+    // Degree bound (the length content of whitepaper check #3, §4.2.3): the
+    // committed polynomial must have exactly `security_threshold` coefficients,
+    // i.e. degree `threshold - 1`. The pairing checks below only prove the
+    // shares lie on *some* polynomial committed by `pvss_coefficients` (since
+    // the share commitments are derived as A = FFT(coeffs)); they do not pin
+    // its degree. Without this bound a crafted coefficient count still verifies
+    // while changing the effective threshold: too many coefficients make the
+    // aggregate undecryptable at threshold, too few silently lower it.
+    if pvss_coefficients.len() != security_threshold as usize {
+        return Err(Error::InvalidTranscriptDegree(
+            security_threshold,
+            pvss_coefficients.len() as u32,
+        ));
+    }
+
+    // Trailing identity coefficients pad a lower-degree polynomial out to the
+    // expected count, so the count check above passes while the committed
+    // polynomial has a lower degree — and a lower degree is a lower effective
+    // threshold. In the limit every coefficient above `F₀` is the identity,
+    // the polynomial is the constant `φ(x) = s`, every validator's share is
+    // `s`, and any single share reconstructs the secret while verification
+    // still reports `security_threshold`. Only coefficients up to the last
+    // non-identity one pin the degree.
+    let degree_pinning_len = pvss_coefficients
+        .iter()
+        .rposition(|coeff| !coeff.is_zero())
+        .map_or(0, |last| last + 1);
+    if degree_pinning_len != security_threshold as usize {
+        return Err(Error::InvalidTranscriptDegree(
+            security_threshold,
+            degree_pinning_len as u32,
+        ));
+    }
+
+    // An identity constant term makes every pairing check below vacuous
+    // (e(𝒪, ·) = 1) and the aggregation-sum comparison trivially satisfiable;
+    // reject it here so the core-layer verifiers cannot accept an all-identity
+    // transcript. See `verify_optimistic` and docs/security-notes.md §2.
+    if pvss_coefficients.first().is_none_or(|f_0| f_0.is_zero()) {
+        return Ok(false);
+    }
+
+    // The per-validator loop below is the only place shares are checked, so an
+    // empty validator set would make full verification vacuously true.
+    if validators.is_empty() {
+        return Ok(false);
+    }
 
     let share_commitments = get_share_commitments_from_poly_commitments::<E>(
         pvss_coefficients,
@@ -244,6 +331,18 @@ pub fn do_verify_full<E: Pairing>(
 
     // Each validator checks that their share is correct
     for validator in validators {
+        // An identity encryption key ek_i makes the per-slot check below
+        // vacuous: a dealer's blinded share Y_i = [f(ω_i)]·ek_i is the
+        // identity, and e(G, Y_i) == e(A_i, ek_i) holds as 1 == 1 — a dead
+        // slot that can never produce a decryption share would verify.
+        // `Dkg::new` also rejects such validators, but this verifier accepts
+        // caller-supplied validator sets that never pass through it. See
+        // docs/security-notes.md §2.
+        if validator.public_key.encryption_key.is_zero() {
+            return Err(Error::IdentityValidatorEncryptionKey(
+                validator.address.clone(),
+            ));
+        }
         let is_valid = verify_validator_share(
             &share_commitments,
             pvss_encrypted_shares,
@@ -253,7 +352,6 @@ pub fn do_verify_full<E: Pairing>(
         if !is_valid {
             return Ok(false);
         }
-        // TODO: Should we return Err()?
     }
     Ok(true)
 }
@@ -264,22 +362,46 @@ pub fn do_verify_aggregation<E: Pairing>(
     validators: &[Validator<E>],
     domain: &ark_poly::GeneralEvaluationDomain<E::ScalarField>,
     pvss: &[PubliclyVerifiableSS<E>],
+    security_threshold: u32,
 ) -> Result<bool> {
+    // With no transcripts the aggregation-sum check below compares against
+    // the empty sum 𝒪, which an all-identity aggregate would satisfy
+    // vacuously. See docs/security-notes.md §2.
+    if pvss.is_empty() {
+        return Err(Error::NoTranscriptsToVerify);
+    }
+
     let is_valid = do_verify_full(
         pvss_agg_coefficients,
         pvss_agg_encrypted_shares,
         validators,
         domain,
+        security_threshold,
     )?;
     if !is_valid {
         return Err(Error::InvalidTranscriptAggregate);
     }
 
-    // Now, we verify that the aggregated PVSS transcript is a valid aggregation
-    let y = pvss
-        .iter()
-        .fold(E::G1::zero(), |acc, pvss| acc + pvss.coeffs[0].into_group());
-    if y.into_affine() == pvss_agg_coefficients[0] {
+    // Now, we verify that the aggregated PVSS transcript is a valid aggregation.
+    // Both the individual transcripts and the aggregate are peer-supplied, so
+    // neither constant term may be indexed blindly.
+    let y = pvss.iter().try_fold(E::G1::zero(), |acc, pvss| {
+        let f_0 = pvss.coeffs.first().ok_or(Error::EmptyTranscript)?;
+        // Each dealer transcript must be valid in its own right. An identity
+        // transcript contributes nothing to the sum below, so without this a
+        // dealer set could be padded with identity transcripts and an
+        // aggregate produced by a single dealer would verify as one produced
+        // by many — the aggregate secret would be known to that dealer alone.
+        // See docs/security-notes.md §2.
+        if !pvss.verify_optimistic() {
+            return Err(Error::InvalidTranscriptAggregate);
+        }
+        Ok::<_, Error>(acc + f_0.into_group())
+    })?;
+    let agg_f_0 = pvss_agg_coefficients
+        .first()
+        .ok_or(Error::EmptyTranscript)?;
+    if y.into_affine() == *agg_f_0 {
         Ok(true)
     } else {
         Err(Error::InvalidTranscriptAggregate)
@@ -304,6 +426,7 @@ impl<E: Pairing, T: Aggregate> PubliclyVerifiableSS<E, T> {
             &validators,
             &dkg.domain,
             pvss,
+            dkg.dkg_params.security_threshold(),
         )
     }
 
@@ -312,15 +435,14 @@ impl<E: Pairing, T: Aggregate> PubliclyVerifiableSS<E, T> {
         share_index: u32,
         public_key: &PublicKey<E>,
     ) -> Result<BlindedKeyShare<E>> {
-        let blinded_key_share = self
+        let blinded_key_share = *self
             .shares
             .get(share_index as usize)
-            .ok_or(Error::InvalidShareIndex(share_index));
-        let blinded_key_share = BlindedKeyShare {
+            .ok_or(Error::InvalidShareIndex(share_index))?;
+        Ok(BlindedKeyShare {
             validator_public_key: public_key.encryption_key,
-            blinded_key_share: *blinded_key_share.unwrap(),
-        };
-        Ok(blinded_key_share)
+            blinded_key_share,
+        })
     }
 
     pub fn get_share_for_validator(
@@ -345,14 +467,13 @@ impl<E: Pairing, T: Aggregate> PubliclyVerifiableSS<E, T> {
             .get_share_for_index_and_pubkey(
                 share_index,
                 &validator_keypair.public_key(),
-            )
-            .unwrap()
+            )?
             .create_decryption_share_simple(
                 ciphertext_header,
                 aad,
                 validator_keypair,
-            );
-        Ok(decryption_share.unwrap())
+            )?;
+        Ok(decryption_share)
     }
 
     /// Make a decryption share (precomputed variant) for a given ciphertext
@@ -364,23 +485,20 @@ impl<E: Pairing, T: Aggregate> PubliclyVerifiableSS<E, T> {
         share_index: u32,
         domain_points: &HashMap<u32, DomainPoint<E>>,
     ) -> Result<DecryptionSharePrecomputed<E>> {
-        let share = self
-            .get_share_for_index_and_pubkey(
-                share_index,
-                &validator_keypair.public_key(),
-            )
-            .unwrap();
-        Ok(share
-            .create_decryption_share_precomputed(
-                ciphertext_header,
-                aad,
-                validator_keypair,
-                share_index,
-                domain_points,
-            )
-            .unwrap())
+        let share = self.get_share_for_index_and_pubkey(
+            share_index,
+            &validator_keypair.public_key(),
+        )?;
+        Ok(share.create_decryption_share_precomputed(
+            ciphertext_header,
+            aad,
+            validator_keypair,
+            share_index,
+            domain_points,
+        )?)
     }
 
+    #[cfg(feature = "experimental-refresh")]
     pub fn refresh(
         &self,
         update_transcripts: &HashMap<u32, UpdateTranscript<E>>,
@@ -393,9 +511,9 @@ impl<E: Pairing, T: Aggregate> PubliclyVerifiableSS<E, T> {
             )
             .unwrap();
 
-        // First, verify that all update transcript are valid
-        // TODO: Consider what to do with failed verifications - #176
-        // TODO: Find a better way to ensure they're always validated - #176
+        // First, verify that all update transcript are valid.
+        // Failures panic rather than returning an error; see
+        // `docs/refresh-handover-roadmap.md` (gap 3).
         for update_transcript in update_transcripts.values() {
             update_transcript
                 .verify_refresh(validator_keys_map, &fft_domain)
@@ -405,7 +523,7 @@ impl<E: Pairing, T: Aggregate> PubliclyVerifiableSS<E, T> {
         // Participants refresh their shares with the updates from each other:
         // TODO: Here we're just iterating over all current shares,
         //       implicitly assuming all of them will be refreshed.
-        //       Generalize to allow refreshing just a subset of the shares. - #199
+        //       Generalize to allow refreshing just a subset of the shares.
         let mut indices: Vec<u32> =
             validator_keys_map.keys().copied().collect::<Vec<u32>>();
         indices.sort();
@@ -425,7 +543,10 @@ impl<E: Pairing, T: Aggregate> PubliclyVerifiableSS<E, T> {
             .collect();
 
         let refreshed_aggregate_transcript = Self {
-            coeffs: self.coeffs.clone(), // FIXME: coeffs need to be updated too - #200
+            // KNOWN GAP (experimental, was #200): coeffs are not updated to
+            // match the refreshed shares, so the result does not pass
+            // verify_full. See the `refresh` module docs.
+            coeffs: self.coeffs.clone(),
             shares: updated_blinded_shares,
             sigma: self.sigma,
             phantom: Default::default(),
@@ -433,6 +554,7 @@ impl<E: Pairing, T: Aggregate> PubliclyVerifiableSS<E, T> {
         Ok(refreshed_aggregate_transcript)
     }
 
+    #[cfg(feature = "experimental-refresh")]
     pub fn finalize_handover(
         &self,
         handover_transcript: &HandoverTranscript<E>,
@@ -511,7 +633,7 @@ pub struct AggregatedTranscript<E: Pairing> {
     pub public_key: ferveo_tdec::DkgPublicKey<E>,
 }
 
-// TODO: Add tests - #202
+// TODO: Add tests for AggregatedTranscript
 impl<E: Pairing> AggregatedTranscript<E> {
     pub fn from_transcripts(
         transcripts: &[PubliclyVerifiableSS<E>],
@@ -523,7 +645,9 @@ impl<E: Pairing> AggregatedTranscript<E> {
     pub fn from_aggregate(
         aggregate: PubliclyVerifiableSS<E, Aggregated>,
     ) -> Result<Self> {
-        let public_key = ferveo_tdec::DkgPublicKey::<E>(aggregate.coeffs[0]);
+        let public_key = ferveo_tdec::DkgPublicKey::<E>(
+            *aggregate.coeffs.first().ok_or(Error::EmptyTranscript)?,
+        );
         Ok(AggregatedTranscript {
             aggregate,
             public_key,
@@ -548,6 +672,22 @@ fn aggregate<E: Pairing>(
     // sigma is the sum of all the sigma_i, which is the proof of knowledge of the secret polynomial
     // Aggregating is just adding the corresponding values in PVSS instances, so PVSS = PVSS + PVSS_i
     for next_pvss in pvss_iter {
+        // Transcripts are peer-supplied: reject a shape mismatch instead of
+        // letting `zip_eq` panic.
+        if next_pvss.coeffs.len() != coeffs.len() {
+            return Err(Error::MismatchedTranscriptLengths(
+                "coefficients",
+                coeffs.len() as u32,
+                next_pvss.coeffs.len() as u32,
+            ));
+        }
+        if next_pvss.shares.len() != shares.len() {
+            return Err(Error::MismatchedTranscriptLengths(
+                "shares",
+                shares.len() as u32,
+                next_pvss.shares.len() as u32,
+            ));
+        }
         sigma = (sigma + next_pvss.sigma).into();
         coeffs
             .iter_mut()
@@ -602,7 +742,7 @@ mod test_pvss {
     #[test_case(30, 30; "N is not a power of 2, t=N")]
     fn test_new_pvss(shares_num: u32, security_threshold: u32) {
         let rng = &mut ark_std::test_rng();
-        let validators_num = shares_num; // TODO: #197
+        let validators_num = shares_num;
 
         let (dkg, _, _) = setup_dealt_dkg_with_n_validators(
             security_threshold,
@@ -671,6 +811,46 @@ mod test_pvss {
         assert!(!bad_pvss.verify_full(&dkg).unwrap());
     }
 
+    /// A transcript committing to a polynomial of the wrong degree (coefficient
+    /// count != security threshold) must be rejected by full verification.
+    /// This is the length content of whitepaper check #3, §4.2.3: the
+    /// optimistic (sigma) check does not pin the degree, so without this bound
+    /// a crafted coefficient count would verify while changing the effective
+    /// threshold.
+    #[test]
+    fn test_verify_pvss_wrong_degree() {
+        let rng = &mut ark_std::test_rng();
+        let (dkg, _) = setup_dkg(0);
+        let s = ScalarField::rand(rng);
+        let pvss =
+            PubliclyVerifiableSS::<EllipticCurve>::new(&s, &dkg, rng).unwrap();
+        let threshold = dkg.dkg_params.security_threshold() as usize;
+        assert_eq!(pvss.coeffs.len(), threshold);
+        assert!(pvss.verify_full(&dkg).unwrap());
+
+        // Too few coefficients (degree below threshold - 1) would lower the
+        // effective threshold. The optimistic check still passes.
+        let mut short = pvss.clone();
+        short.coeffs.pop();
+        assert!(short.verify_optimistic());
+        assert!(matches!(
+            short.verify_full(&dkg),
+            Err(crate::Error::InvalidTranscriptDegree(t, got))
+                if t as usize == threshold && got as usize == threshold - 1
+        ));
+
+        // Too many coefficients (degree above threshold - 1) would make the
+        // aggregate undecryptable at threshold.
+        let mut long = pvss;
+        long.coeffs.push(long.coeffs[0]);
+        assert!(long.verify_optimistic());
+        assert!(matches!(
+            long.verify_full(&dkg),
+            Err(crate::Error::InvalidTranscriptDegree(t, got))
+                if t as usize == threshold && got as usize == threshold + 1
+        ));
+    }
+
     /// Check that happy flow of aggregating PVSS transcripts
     /// has the correct form and it's validations passes
     #[test_case(4, 3; "N is a power of 2, t is 1 + 50%")]
@@ -678,7 +858,7 @@ mod test_pvss {
     #[test_case(30, 16; "N is not a power of 2, t is 1 + 50%")]
     #[test_case(30, 30; "N is not a power of 2, t=N")]
     fn test_aggregate_pvss(shares_num: u32, security_threshold: u32) {
-        let validators_num = shares_num; // TODO: #197
+        let validators_num = shares_num;
         let (dkg, _, messages) = setup_dealt_dkg_with_n_validators(
             security_threshold,
             shares_num,
@@ -724,5 +904,71 @@ mod test_pvss {
                 .to_string(),
             "Transcript aggregate doesn't match the received PVSS instances"
         )
+    }
+
+    /// The core-layer verifiers must reject an all-identity aggregate and an
+    /// empty transcript list; without explicit rejection every pairing check
+    /// and the aggregation-sum comparison are vacuously true (e(𝒪, ·) = 1,
+    /// 𝒪 == 𝒪) regardless of entry point.
+    #[test]
+    fn test_core_verifiers_reject_all_identity_aggregate() {
+        let (dkg, _, messages) = setup_dealt_dkg();
+        let pvss_list =
+            messages.iter().map(|(_, pvss)| pvss).cloned().collect_vec();
+        let mut aggregate = aggregate(&pvss_list).unwrap();
+
+        // Positive control, and: even an honest aggregate must not verify
+        // against an empty transcript list.
+        assert!(aggregate.verify_full(&dkg).unwrap());
+        assert!(matches!(
+            aggregate.verify_aggregation(&dkg, &[]),
+            Err(crate::Error::NoTranscriptsToVerify)
+        ));
+
+        // An identity constant term, with the degree still pinned by the
+        // remaining coefficients, fails full verification.
+        let mut identity_f_0 = aggregate.clone();
+        identity_f_0.coeffs[0] = G1::zero();
+        assert!(!identity_f_0.verify_full(&dkg).unwrap());
+
+        // An all-identity aggregate pins no degree at all.
+        let threshold = dkg.dkg_params.security_threshold() as usize;
+        aggregate.coeffs = vec![G1::zero(); threshold];
+        aggregate.shares = vec![G2::zero(); dkg.validators.len()];
+        aggregate.sigma = G2::zero();
+
+        assert!(matches!(
+            aggregate.verify_full(&dkg),
+            Err(crate::Error::InvalidTranscriptDegree(t, 0))
+                if t as usize == threshold
+        ));
+        assert!(matches!(
+            aggregate.verify_aggregation(&dkg, &pvss_list),
+            Err(crate::Error::InvalidTranscriptDegree(..))
+        ));
+        assert!(matches!(
+            aggregate.verify_aggregation(&dkg, &[]),
+            Err(crate::Error::NoTranscriptsToVerify)
+        ));
+    }
+
+    /// The per-validator loop is the only place shares are checked, so an
+    /// empty validator set would make full verification vacuously true.
+    #[test]
+    fn test_do_verify_full_rejects_an_empty_validator_set() {
+        let (dkg, _, messages) = setup_dealt_dkg();
+        let pvss_list =
+            messages.iter().map(|(_, pvss)| pvss).cloned().collect_vec();
+        let aggregate = aggregate(&pvss_list).unwrap();
+
+        assert!(aggregate.verify_full(&dkg).unwrap());
+        assert!(!do_verify_full::<EllipticCurve>(
+            &aggregate.coeffs,
+            &aggregate.shares,
+            &[],
+            &dkg.domain,
+            dkg.dkg_params.security_threshold(),
+        )
+        .unwrap());
     }
 }

@@ -6,8 +6,6 @@ use ark_ec::{pairing::Pairing, AffineRepr};
 //     p.iter().map(|a| a.into_projective()).collect::<Vec<_>>()
 // }
 
-// TODO: Make it a trait to recreate the original batch_to_projective
-
 pub fn batch_to_projective_g1<E: Pairing>(p: &[E::G1Affine]) -> Vec<E::G1> {
     p.iter().map(|a| a.into_group()).collect::<Vec<_>>()
 }

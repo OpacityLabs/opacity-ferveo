@@ -11,6 +11,7 @@ pub enum Error {
     InvalidByteLength(usize, usize),
     SerializationError(ark_serialize::SerializationError),
     InvalidSeedLength(usize),
+    IdentityEncryptionKey,
 }
 
 impl fmt::Display for Error {
@@ -27,6 +28,9 @@ impl fmt::Display for Error {
             }
             Error::InvalidSeedLength(len) => {
                 write!(f, "Invalid seed length: {len}")
+            }
+            Error::IdentityEncryptionKey => {
+                write!(f, "Encryption key is the identity point")
             }
         }
     }
