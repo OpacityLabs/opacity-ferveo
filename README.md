@@ -26,17 +26,20 @@ is not a goal.
 ## Build and test
 
 ```
-cargo build --release
-cargo test --release --workspace
+mise test   # cargo test --release --workspace, plus the
+            # experimental-refresh feature config
 ```
 
 Release mode matters: the test suite runs full DKG ceremonies and is
 significantly slower in debug. Lints must be clean:
 
 ```
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
+mise lint   # rustfmt check; clippy -D warnings in both feature
+            # configs; cargo-machete
 ```
+
+Both tasks mirror CI (`.github/workflows/tests.yaml`); see `mise.toml`
+for the exact commands if you don't use mise.
 
 ## Wire-format stability
 
@@ -49,6 +52,12 @@ and must be treated as a wire-format break, not a test to update.
 ## Security Warning
 
 This library has not been independently audited. Use at your own risk.
+
+## Security Notes
+
+Deliberate cryptographic decisions and assumptions — for example, the PVSS
+proof-of-knowledge (σ) soundness assumption and its reuse audit — are recorded in
+[docs/security-notes.md](docs/security-notes.md).
 
 ## License
 

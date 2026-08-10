@@ -30,7 +30,7 @@ pub fn gen_keypairs(n: u32) -> Vec<Keypair<E>> {
 }
 
 pub fn gen_address(i: usize) -> EthereumAddress {
-    EthereumAddress::from_str(&format!("0x{i:040}")).unwrap() // TODO: Randomize - #207
+    EthereumAddress::from_str(&format!("0x{i:040}")).unwrap()
 }
 
 pub fn gen_validators(keypairs: &[Keypair<E>]) -> Vec<Validator<E>> {
@@ -101,7 +101,9 @@ pub fn setup_dealt_dkg_with(
     )
 }
 
-// TODO: Review usage of this function - #197
+// Note: tests overwhelmingly call this with validators_num == shares_num. The
+// two counts are separate parameters by design, but the validators_num > shares_num
+// case is thinly covered.
 pub fn setup_dealt_dkg_with_n_validators(
     security_threshold: u32,
     shares_num: u32,

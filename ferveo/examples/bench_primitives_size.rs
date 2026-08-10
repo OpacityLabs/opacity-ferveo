@@ -46,8 +46,6 @@ pub fn save_data(
         .unwrap();
 }
 
-// TODO: Find a way to deduplicate the following methods with benchmarks and test setup
-
 fn gen_keypairs(num: u32) -> Vec<ferveo_common::Keypair<EllipticCurve>> {
     let rng = &mut ark_std::test_rng();
     (0..num)
@@ -56,7 +54,7 @@ fn gen_keypairs(num: u32) -> Vec<ferveo_common::Keypair<EllipticCurve>> {
 }
 
 pub fn gen_address(i: usize) -> EthereumAddress {
-    EthereumAddress::from_str(&format!("0x{i:040}")).unwrap() // TODO: Randomize - #207
+    EthereumAddress::from_str(&format!("0x{i:040}")).unwrap()
 }
 
 fn gen_validators(

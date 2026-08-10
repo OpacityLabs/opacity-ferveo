@@ -54,7 +54,16 @@ impl<E: Pairing> PublicKey<E> {
                         bytes.len(),
                     )
                 })?;
-        from_bytes(&bytes).map(|encryption_key| PublicKey { encryption_key })
+        let encryption_key: E::G2Affine = from_bytes(&bytes)?;
+        // An identity encryption key makes every blinded share for its slot
+        // the identity, so the per-slot pairing check verifies vacuously
+        // while the slot can never produce a decryption share. Honest keys
+        // are the identity only with negligible probability. See
+        // docs/security-notes.md §2.
+        if encryption_key.is_zero() {
+            return Err(Error::IdentityEncryptionKey);
+        }
+        Ok(PublicKey { encryption_key })
     }
 
     pub fn serialized_size() -> usize {
@@ -162,6 +171,21 @@ mod tests {
         let bytes = [0u8; 31];
         let keypair = Keypair::<E>::from_secure_randomness(&bytes);
         assert!(keypair.is_err());
+    }
+
+    #[test]
+    fn test_from_bytes_rejects_identity_encryption_key() {
+        let honest = Keypair::<E>::new(&mut rand::thread_rng()).public_key();
+        let round_tripped =
+            PublicKey::<E>::from_bytes(&honest.to_bytes().unwrap()).unwrap();
+        assert_eq!(honest, round_tripped);
+
+        let identity_bytes =
+            to_bytes(&<E as Pairing>::G2Affine::zero()).unwrap();
+        assert!(matches!(
+            PublicKey::<E>::from_bytes(&identity_bytes),
+            Err(Error::IdentityEncryptionKey)
+        ));
     }
 
     #[test]

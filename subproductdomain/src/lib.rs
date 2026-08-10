@@ -51,7 +51,7 @@ pub fn inverse_mod_xl<F: FftField>(
         // Use Newton iteration which converges to the inverse mod x^l
         for _ in 0..log {
             func_inv =
-                &(&func_inv + &func_inv) - &(func * &(&func_inv * &func_inv)); //TODO: is func_inv*2 better than func_inv+func_inv?
+                &(&func_inv + &func_inv) - &(func * &(&func_inv * &func_inv));
             func_inv.coeffs.resize(
                 ark_std::cmp::min(func_inv.coeffs.len(), acc),
                 F::zero(),
@@ -78,12 +78,13 @@ pub fn rev<F: FftField>(f: &mut DensePolynomial<F>, m: usize) {
 
 /// GG Algorithm 9.5
 /// Divide f by g in nearly linear time
+///
+/// Precondition: `divisor` must be monic. This is not checked; all in-repo
+/// callers construct monic divisors from subproduct trees.
 pub fn fast_divide_monic<F: FftField>(
     func: &DensePolynomial<F>,
     divisor: &DensePolynomial<F>,
 ) -> (DensePolynomial<F>, DensePolynomial<F>) {
-    //TODO: check monic condition
-
     if func.coeffs().len() < divisor.coeffs().len() {
         return (
             DensePolynomial::<F> {

@@ -72,6 +72,15 @@ impl<E: Pairing> CiphertextHeader<E> {
         // See: https://eprint.iacr.org/2022/898.pdf
         // See: https://nikkolasg.github.io/ferveo/tpke.html#to-validate-ciphertext-for-ind-cca2-security
 
+        // An identity U or W makes both pairings below the identity of the
+        // target group, so the equation would hold for any aad and any
+        // ciphertext hash — bypassed rather than satisfied. Honest encryption
+        // produces identity points only when r = 0, with negligible
+        // probability. See docs/security-notes.md §2.
+        if self.commitment.is_zero() || self.auth_tag.is_zero() {
+            return Err(Error::CiphertextVerificationFailed);
+        }
+
         // H_G2(U, sym_ctxt_digest, aad)
         let hash_g2 = E::G2Prepared::from(construct_tag_hash::<E>(
             self.commitment,
@@ -103,6 +112,15 @@ pub fn encrypt<E: Pairing>(
     pubkey: &DkgPublicKey<E>,
     rng: &mut impl rand::Rng,
 ) -> Result<Ciphertext<E>> {
+    // An identity public key makes the shared secret e(𝒪, H)^r = 1 in the
+    // target group, so the derived AEAD key is a public constant and the
+    // ciphertext hides nothing. Honest DKGs produce an identity public key
+    // only when the group secret is zero, with negligible probability. See
+    // docs/security-notes.md §2.
+    if pubkey.0.is_zero() {
+        return Err(Error::IdentityDkgPublicKey);
+    }
+
     // r
     let rand_element = E::ScalarField::rand(rng);
     // g
@@ -124,7 +142,7 @@ pub fn encrypt<E: Pairing>(
         aad,
     };
     let ciphertext = shared_secret_to_chacha(&shared_secret)?
-        .encrypt(&nonce.0, payload) // TODO: Consider encrypt_in_place (#196)
+        .encrypt(&nonce.0, payload) // TODO: Consider encrypt_in_place
         .map_err(Error::SymmetricEncryptionError)?
         .to_vec();
     let ciphertext_hash = sha256(&ciphertext);
@@ -134,7 +152,6 @@ pub fn encrypt<E: Pairing>(
         .mul(rand_element)
         .into();
 
-    // TODO: Consider adding aad to the Ciphertext struct
     Ok(Ciphertext::<E> {
         commitment,
         ciphertext,
@@ -275,6 +292,20 @@ mod tests {
         let bad: &[u8] = "bad-aad".as_bytes();
 
         assert!(decrypt_symmetric(&ciphertext, bad, &privkey).is_err());
+    }
+
+    #[test]
+    fn encrypt_rejects_identity_pubkey() {
+        use ark_ec::AffineRepr;
+
+        let rng = &mut test_rng();
+        let msg = "my-msg".as_bytes().to_vec();
+        let aad: &[u8] = "my-aad".as_bytes();
+        let pubkey = DkgPublicKey::<E>(ark_bls12_381::G1Affine::zero());
+        assert!(matches!(
+            encrypt::<E>(SecretBox::new(msg), aad, &pubkey, rng),
+            Err(Error::IdentityDkgPublicKey)
+        ));
     }
 
     #[test]

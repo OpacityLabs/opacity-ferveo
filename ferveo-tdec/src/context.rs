@@ -14,7 +14,7 @@ pub struct PublicDecryptionContextSimple<E: Pairing> {
     pub validator_public_key: ferveo_common::PublicKey<E>,
 }
 
-// TODO: Mark for removal - #197
+// TODO: Mark for removal
 #[derive(Clone, Debug)]
 pub struct SetupParams<E: Pairing> {
     pub b: E::ScalarField, // Validator private key
