@@ -217,10 +217,7 @@ mod tests {
     use ferveo_common::{FromBytes, ToBytes};
     use rand::seq::IteratorRandom;
 
-    use crate::{
-        api::DecryptionSharePrecomputed,
-        test_common::{create_shared_secret_simple, setup_simple, *},
-    };
+    use crate::test_common::{create_shared_secret_simple, setup_simple, *};
 
     type E = ark_bls12_381::Bls12_381;
     type TargetField = <E as Pairing>::TargetField;
@@ -368,7 +365,7 @@ mod tests {
                     )
                     .unwrap()
             })
-            .collect::<Vec<DecryptionSharePrecomputed>>();
+            .collect::<Vec<DecryptionSharePrecomputed<E>>>();
 
         let shared_secret = share_combine_precomputed::<E>(&decryption_shares);
         test_ciphertext_validation_fails(
