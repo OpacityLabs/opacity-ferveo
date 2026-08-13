@@ -295,6 +295,27 @@ mod tests {
     }
 
     #[test]
+    fn encryption_uses_fresh_randomness_per_call() {
+        let rng = &mut test_rng();
+        let shares_num = 16;
+        let threshold = shares_num * 2 / 3;
+        let msg = "my-msg".as_bytes().to_vec();
+        let aad: &[u8] = "my-aad".as_bytes();
+
+        let (pubkey, _, _) = setup_simple::<E>(shares_num, threshold, rng);
+
+        // The AEAD key and the nonce are both derived from the per-call
+        // random r; nonce-reuse safety depends on r being fresh every call.
+        let c1 = encrypt::<E>(SecretBox::new(msg.clone()), aad, &pubkey, rng)
+            .unwrap();
+        let c2 = encrypt::<E>(SecretBox::new(msg), aad, &pubkey, rng).unwrap();
+
+        assert_ne!(c1.commitment, c2.commitment);
+        assert_ne!(c1.auth_tag, c2.auth_tag);
+        assert_ne!(c1.ciphertext, c2.ciphertext);
+    }
+
+    #[test]
     fn encrypt_rejects_identity_pubkey() {
         use ark_ec::AffineRepr;
 

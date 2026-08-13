@@ -2,8 +2,8 @@ use ark_ec::pairing::Pairing;
 
 use crate::{
     prepare_combine_simple, BlindedKeyShare, CiphertextHeader,
-    DecryptionSharePrecomputed, DecryptionShareSimple, PrivateKeyShare, Result,
-    ShareCommitment,
+    DecryptionSharePrecomputed, DecryptionShareSimple, Error, PrivateKeyShare,
+    Result, ShareCommitment,
 };
 
 #[derive(Clone, Debug)]
@@ -60,13 +60,20 @@ impl<E: Pairing> PrivateDecryptionContextSimple<E> {
         let lagrange_coeffs =
             prepare_combine_simple::<E>(&selected_domain_points);
 
+        // `lagrange_coeffs` is positional over `selected_participants`, not
+        // indexed by validator index.
+        let position = selected_participants
+            .iter()
+            .position(|i| *i == self.index)
+            .ok_or(Error::InvalidShareIndex(self.index as u32))?;
+
         DecryptionSharePrecomputed::create(
             self.index,
             &self.setup_params.b,
             &self.private_key_share,
             ciphertext_header,
             aad,
-            &lagrange_coeffs[self.index],
+            &lagrange_coeffs[position],
         )
     }
 }
