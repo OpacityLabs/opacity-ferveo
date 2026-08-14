@@ -415,7 +415,7 @@ mod tests {
                     )
                     .unwrap()
             })
-            .collect::<Vec<DecryptionSharePrecomputed>>();
+            .collect::<Vec<DecryptionSharePrecomputed<E>>>();
 
         // The verifier recomputes the subset's Lagrange coefficients in the
         // same positional order the shares were created with
