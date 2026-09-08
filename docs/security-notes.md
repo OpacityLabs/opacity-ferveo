@@ -268,3 +268,38 @@ revisit *before* enabling any multi-party dealing:
   rushing dealer in a multi-dealer flow could force `F₀` to any chosen value —
   `𝒪` is merely one of them. Key-bias resistance rests on the σ
   proof-of-knowledge above, not on the §2 fixes.
+
+## 4. Unlimited bincode length prefixes: accepted (input-bounded)
+
+Every serialized object is bincode-1 (fixint, u64 length prefixes), and the
+sole deserialization entry point is `FromBytes::from_bytes`
+(`ferveo-common/src/serialization.rs`), which calls plain
+`bincode::deserialize` — no `with_limit`. The textbook concern: a length
+prefix claiming ~2^64 elements makes a naive deserializer allocate before
+reading, so a tiny hostile message causes an out-of-memory crash.
+
+### Decision: accepted as-is (no code change)
+
+That failure mode does not arise here, for three stacked reasons:
+
+1. **All deserialization is slice-based.** `from_bytes` takes the complete
+   message as `&[u8]`; nothing deserializes from a network reader. There is no
+   read-forever or allocate-while-streaming path.
+2. **bincode bounds-checks byte buffers against the slice.** A claimed byte
+   length larger than the input remaining fails before allocating.
+3. **serde caps speculative preallocation for element sequences.** Beyond a
+   small cap, point vectors grow only as elements actually parse, and every
+   parsed element consumes input bytes.
+
+Memory and CPU are therefore bounded by the size of the message actually
+received (times a small constant — for CPU, the per-point subgroup checks).
+The operative bound is the **transport-level maximum message size**, which
+deployments must enforce; opacity-stack's HTTP layer does. A bincode
+`with_limit` would add nothing for slice input — the slice length already
+bounds everything the limit bounds — and reconstructing the config via
+`bincode::options()` is wire-format-adjacent (the default there is varint,
+a silent wire break if misassembled). Not worth the risk for zero gain.
+
+**Revisit if:** a streaming/reader-based deserialization path is ever
+introduced, or a deserialization call site appears that is not fronted by a
+transport with an enforced message-size cap.

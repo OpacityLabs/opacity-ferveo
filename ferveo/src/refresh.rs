@@ -13,6 +13,12 @@
 //! - `PubliclyVerifiableSS::refresh` does not update the polynomial commitments
 //!   (`coeffs`) to match the refreshed shares, so a refreshed aggregate will
 //!   not pass `verify_full`.
+//! - Validation failures panic (`assert!`/`unwrap()`) instead of returning
+//!   errors; an invalid update from a peer is currently a crash.
+//! - `PubliclyVerifiableSS::finalize_handover` discards the boolean returned
+//!   by `verify_validator_share`: only the `Err` arm propagates, so an
+//!   `Ok(false)` ("share invalid") result silently installs an invalid
+//!   re-blinded share into the post-handover aggregate.
 //!
 //! Share *recovery* (recovering a lost share at an arbitrary domain point) was
 //! removed as dead scaffolding; the update-polynomial machinery it shared with
