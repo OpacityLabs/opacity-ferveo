@@ -15,6 +15,7 @@ generic-array = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_with = { workspace = true }
+zeroize = { workspace = true, features = ["derive"] }
 
 [dev-dependencies]
 ark-bls12-381 = { workspace = true }
