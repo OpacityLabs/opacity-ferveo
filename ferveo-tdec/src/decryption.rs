@@ -198,18 +198,31 @@ impl<E: Pairing> DecryptionSharePrecomputed<E> {
     }
 
     /// Verify that the decryption share is valid.
+    /// `lagrange_coeff` must be the coefficient the share was created with:
+    /// the one for this validator within the subset selected at
+    /// share-creation time. The share is bound to that subset.
     pub fn verify(
         &self,
         share_aggregate: &E::G2Affine,
         validator_public_key: &E::G2Affine,
         ciphertext: &Ciphertext<E>,
+        lagrange_coeff: &E::ScalarField,
     ) -> bool {
-        self.validator_checksum.verify(
-            &self.decryption_share,
-            share_aggregate,
-            validator_public_key,
-            ciphertext,
-        )
+        // D_i == e([λ_i] C_i, Y_i)
+        let scaled_checksum = self
+            .validator_checksum
+            .checksum
+            .mul(lagrange_coeff)
+            .into_affine();
+        if self.decryption_share
+            != E::pairing(scaled_checksum, *share_aggregate).0
+        {
+            return false;
+        }
+
+        // e(C_i, ek_i) == e(U, H)
+        E::pairing(self.validator_checksum.checksum, *validator_public_key)
+            == E::pairing(ciphertext.commitment, E::G2::generator())
     }
 }
 
