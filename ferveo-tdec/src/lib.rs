@@ -385,6 +385,106 @@ mod tests {
     }
 
     #[test]
+    fn tdec_precomputed_variant_share_verification() {
+        let mut rng = &mut test_rng();
+        let shares_num = 16;
+        let threshold = shares_num * 2 / 3;
+        let msg = "my-msg".as_bytes().to_vec();
+        let aad: &[u8] = "my-aad".as_bytes();
+
+        let (pubkey, _, contexts) =
+            setup_precomputed::<E>(shares_num, threshold, &mut rng);
+        let ciphertext =
+            encrypt::<E>(SecretBox::new(msg.clone()), aad, &pubkey, rng)
+                .unwrap();
+
+        // Deliberately unsorted, non-prefix subset: shares must be created,
+        // verified, and combined positionally, never by validator index.
+        let selected_participants: Vec<usize> =
+            vec![15, 2, 9, 0, 5, 11, 7, 3, 12, 8];
+        assert_eq!(selected_participants.len(), threshold);
+
+        let decryption_shares = selected_participants
+            .iter()
+            .map(|i| {
+                contexts[*i]
+                    .create_share_precomputed(
+                        &ciphertext.header().unwrap(),
+                        aad,
+                        &selected_participants,
+                    )
+                    .unwrap()
+            })
+            .collect::<Vec<DecryptionSharePrecomputed<E>>>();
+
+        // The verifier recomputes the subset's Lagrange coefficients in the
+        // same positional order the shares were created with
+        let pub_contexts = &contexts[0].public_decryption_contexts;
+        let selected_domain_points = selected_participants
+            .iter()
+            .map(|i| pub_contexts[*i].domain)
+            .collect::<Vec<_>>();
+        let lagrange_coeffs =
+            prepare_combine_simple::<E>(&selected_domain_points);
+
+        for (share, (i, lagrange_coeff)) in decryption_shares
+            .iter()
+            .zip(selected_participants.iter().zip(lagrange_coeffs.iter()))
+        {
+            assert!(share.verify(
+                &pub_contexts[*i].blinded_key_share.blinded_key_share,
+                &pub_contexts[*i].validator_public_key.encryption_key,
+                &ciphertext,
+                lagrange_coeff,
+            ));
+        }
+
+        // Honest shares from this unsorted subset must also combine correctly
+        let shared_secret = share_combine_precomputed::<E>(&decryption_shares);
+        test_ciphertext_validation_fails(
+            &msg,
+            aad,
+            &ciphertext,
+            &shared_secret,
+        );
+
+        let i0 = selected_participants[0];
+        let y0 = &pub_contexts[i0].blinded_key_share.blinded_key_share;
+        let ek0 = &pub_contexts[i0].validator_public_key.encryption_key;
+
+        let mut has_bad_share = decryption_shares[0].clone();
+        has_bad_share.decryption_share =
+            has_bad_share.decryption_share.mul(TargetField::rand(rng));
+        assert!(!has_bad_share.verify(
+            y0,
+            ek0,
+            &ciphertext,
+            &lagrange_coeffs[0]
+        ));
+
+        let mut has_bad_checksum = decryption_shares[0].clone();
+        has_bad_checksum.validator_checksum.checksum = has_bad_checksum
+            .validator_checksum
+            .checksum
+            .mul(ScalarField::rand(rng))
+            .into_affine();
+        assert!(!has_bad_checksum.verify(
+            y0,
+            ek0,
+            &ciphertext,
+            &lagrange_coeffs[0]
+        ));
+
+        // Another validator's Lagrange coefficient must not verify
+        assert!(!decryption_shares[0].verify(
+            y0,
+            ek0,
+            &ciphertext,
+            &lagrange_coeffs[1]
+        ));
+    }
+
+    #[test]
     fn tdec_simple_variant_share_verification() {
         let mut rng = &mut test_rng();
         let shares_num = 16;

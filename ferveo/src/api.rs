@@ -95,7 +95,9 @@ pub struct CiphertextHeader(ferveo_tdec::api::CiphertextHeader);
 pub enum FerveoVariant {
     /// The simple variant requires m of n shares to decrypt
     Simple,
-    /// The precomputed variant requires n of n shares to decrypt
+    /// The precomputed variant embeds each share's Lagrange coefficient
+    /// server-side; shares are bound to the validator subset (any m >=
+    /// threshold) selected at share-creation time and combine by bare product
     Precomputed,
 }
 
