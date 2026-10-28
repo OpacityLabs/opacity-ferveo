@@ -12,6 +12,7 @@ use generic_array::{
 };
 use serde::*;
 use serde_with::serde_as;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::{serialization, Error, Result};
 
@@ -98,7 +99,9 @@ impl<E: Pairing> std::fmt::Display for PublicKey<E> {
 }
 
 #[serde_as]
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Zeroize, ZeroizeOnDrop,
+)]
 pub struct Keypair<E: Pairing> {
     #[serde_as(as = "serialization::SerdeAs")]
     pub decryption_key: E::ScalarField,
@@ -225,6 +228,32 @@ mod tests {
             Some(Ordering::Equal)
         );
         assert_eq!(public_key1.cmp(&public_key2), Ordering::Equal);
+    }
+
+    #[test]
+    fn test_cloned_keypair_is_independent() {
+        use ark_std::Zero;
+
+        let original = Keypair::<E>::new(&mut rand::thread_rng());
+        let cloned = original.clone();
+        assert_eq!(original, cloned);
+        assert_eq!(original.cmp(&cloned), Ordering::Equal);
+        assert_eq!(original.public_key(), cloned.public_key());
+
+        let expected_public_key = original.public_key();
+        drop(cloned);
+        assert!(!original.decryption_key.is_zero());
+        assert_eq!(original.public_key(), expected_public_key);
+    }
+
+    #[test]
+    fn test_keypair_zeroize_clears_decryption_key() {
+        use ark_std::Zero;
+
+        let mut keypair = Keypair::<E>::new(&mut rand::thread_rng());
+        assert!(!keypair.decryption_key.is_zero());
+        keypair.zeroize();
+        assert!(keypair.decryption_key.is_zero());
     }
 
     #[test]

@@ -303,3 +303,15 @@ a silent wire break if misassembled). Not worth the risk for zero gain.
 **Revisit if:** a streaming/reader-based deserialization path is ever
 introduced, or a deserialization call site appears that is not fronted by a
 transport with an enforced message-size cap.
+
+## 5. Validator keypair zeroization
+
+`ferveo_common::Keypair` (the validator blinding scalar `dk_i`) implements
+`Zeroize` and `ZeroizeOnDrop`: the scalar is overwritten with zeros when the
+value is dropped or when `zeroize()` is called explicitly. To make that
+guarantee meaningful the type is deliberately **not `Copy`** — a `Copy` type is
+duplicated silently on every by-value use and none of the copies is ever
+cleared. `Clone` remains available and each clone zeroizes independently, but
+every clone is one more copy of the secret in memory until it is dropped, so
+callers should pass `&Keypair` and clone only when ownership is genuinely
+required.
